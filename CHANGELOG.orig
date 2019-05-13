@@ -1,0 +1,57 @@
+# idabench-v1.0 CHANGELOG initialized 2003-05-13
+#
+Ongoing - documentation
+
+2003-05-13 - Fixed numerous path related isues in cgi and html pages.
+
+2003-05-15 - install_analyzer appends id_dsa.pub to authorized_keys for
+simplified one-host installs. install_analyzer .ssh permissions fixed.
+
+2003-05-16 - Legal blurbs added, old comments stripped, README added
+
+2003-05-19 - fetchem.pl now uses fork-opens for each plugin filter.
+
+2003-06-02 - Allowed comments & blank lines in ngrep filter files. Fixed
+blank lines that were printed by ngrep.ph.
+
+2003-06-03 - Fixed $SENSOR_USER spec in cleanup.pl. Provided for ngrep
+commandline switches in filter files & added ngrep fiter output separator 
+line.
+
+2003-06-06 - compose_IR.cgi.in now uses ir.conf file in etc directory for
+a number of configuration options.  idabench.conf had to be edited to put 
+$IDABENCH_IR_SEQNO_FILE in $IDABENCH_SCRATCH_PATH instead of $IDABENCH_CGI_PATH.
+
+2003-06-09 - tcpdump.ph strips comments & blank lines AND allows the use
+of simple variables. 
+
+2003-06-10 - Included the "Step-By-Step" document by permission of Stephen
+Northcutt and the SANS Institute. Thanks!
+Gave findscan.ph and ngrep.ph the same variable capability as tcpdump. (I
+should allow for site-wide and global variable files via include statements).
+Included a search field in ngrep.se and tcpdump.se to limit the number of
+packets matched per hour, using the "-c" switch.
+
+2003-06-12 - tcp_slice_dump.pl is now tolerant of broken pipes encountered when
+the recieving process closes prematurely, such as when using the "-c" parameter
+in tcpdump.
+Replace pcaptestfile with one that claims ethernet encapsulation.
+Removed nmap.cgi and its directory. Analysts shouldn't be scanning anyone from a
+critical security infrastructure component. Do it from your workstation, if you
+need to.
+
+2003-06-13 - compose_IR.cgi, whois.cgi updated.
+Comic art splash page removed until permission is obtained from the copyright
+holders.
+tools.cgi and httpd.conf modified and two new files added, indexheader.cgi and
+indexfooter.html, to provide pleasing index availability in lieu of the comic.
+Navy and Shadow(c) artwork removed, and Alex gave us nice logos; Thanks!
+
+2003-06-20 - name changed to IDABench. Should have done this a long time ago.
+
+2003-06-23 - Added PORTSCAN_THRESHOLD to findscan and site.ph
+
+2003-06-24 - Fixed installation incompatibility with source-installed apache.
+Additional checks and feedback in install_analyzer.
+
+2003-06-25 - Documentation conversion to LinuxDoc sgml begun.

@@ -1,0 +1,513 @@
+#!/usr/bin/perl 
+
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+# 
+#  fetchem.pl         - idabench Version 1.0
+#
+#  Script to fetch tcpdump gzipped hourly logfiles from a sensor,
+#  move them to an dated subdirectory on the analyzer, run through
+#  a filter looking for suspicious events, and position that suspicious
+#  events text file on a web page.
+#
+##  Uses Perl module Compress::Zlib to directly read gzipped files.
+
+package IDABENCH;
+
+# Set up some variables.
+#
+use warnings;
+no warnings 'once';
+use strict 'vars';
+use Getopt::Long;
+use POSIX qw(strftime);
+use Time::Local;
+
+our ($IDABENCH_USER, $SENSOR_USER, $ANALYZER_DIR, $IDABENCH_SITE_PATH, $SENSOR, $SENSOR_DIR, $LOG_FILE, $OUTPUT_WEB_DIR, $IDABENCH_LIB_PLUGIN_PATH, $IDABENCH_LOG_PATH, $SITE, $SITE_FORM_LABEL, $Site, $TZ, $tz, $tz_diff, $debug, @snif_cmd, @snif_date, $sdlen, $snif_file, $snif_time, $snifline, $snifdate, @gmt_snif_date, $yr_format, $hour, $num_children, @out_cmd, @out_file, @out_handle, $output_dir, $subdir, $rmt_cmd, @plugin_aggregate, $plugname, @plugin_head, @plugin_color, @pluglist, @plugin_numtriggers, $sym);
+
+#
+#########################################################################
+#
+# Subroutine to return a method reference. (From "Programming Perl"
+# Third Edition, p. 261.
+#
+#sub get_method_ref {
+#   my ($self, $methodname) = @_;
+#   my $methref = sub {
+#      return $self->$methodname(@_);
+#   };
+#   return $methref;
+#}
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+my $pluginh = "$IDABENCH_LIB_PLUGIN_PATH/plugins.ph";
+unless (my $return = do $pluginh ){
+   die("Unable to parse configuration file $pluginh:\n$@\n") if $@;
+   warn "Unable to determine any plugin paths. No analysis will be done.\n" unless $return;
+}
+
+foreach (keys %IDABENCH::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local $sym = $IDABENCH::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+
+#
+$tz = "LOC";
+$snifdate = "";
+$yr_format = "a4a2a2a2";
+#
+sub usage {
+        print "Usage: fetchem -l Site {-debug} {-d YYYYMMDDHH}.\n";
+	exit 2;
+}
+#
+#	Parse the parameters.
+#
+#
+# Initialize a few variables for testing after cmdline opts parsing 
+
+($Site, $sdlen) = (0, 0);
+
+&GetOptions("debug", \$debug, "d:s", \$snifdate, "l=s", \$Site);
+#
+#  Check parameter validity.
+#
+$sdlen = length($snifdate) if $snifdate;
+usage unless (("$Site" gt 0) and (($sdlen == 0) or ($sdlen == 10)));
+
+##
+#
+#  Rid ourselves of standard output and error to prevent tons of mail messages
+#  from cron.
+#
+my @lvls = split(/\//,$0);				# Split path
+my ($call, $suf) = split(/\./, $lvls[$#lvls]);	# Split call.suffix
+$LOG_FILE = $debug ? "$IDABENCH_LOG_PATH/$call.log" : "/dev/null";
+open(STDOUT, ">>$LOG_FILE");
+select STDOUT; $| = 1;
+open(STDERR, ">&STDOUT");
+select STDERR; $| = 1;              # make unbuffered
+
+#
+# Writer a marker to the log file.
+#
+my $marker=strftime("%c", localtime(time));
+print STDOUT "\n$marker";
+foreach my $param ($0, @ARGV) {
+   printf " %s", $param;
+}
+print STDOUT "\n";
+#
+# Once the Site is identified from the command line,
+# load the needed external Parameters.
+#
+unless (my $return = do "$IDABENCH_SITE_PATH/${Site}/site.ph"){
+   die("Unable to parse site configuration file $IDABENCH_SITE_PATH/${Site}/site.ph:\n\t\t$@\n") if $@;
+   die "Failed to parse site configuration file $IDABENCH_SITE_PATH/${Site}/site.ph:\n\t\t$!.\n" unless $return;
+}
+#
+# If we have been called with a SNIFDATE parameter, set up the $subdir variable,
+# else download the SNIFDATE from the sensor.
+#
+if ($snifdate eq "") {
+   $snif_file="/tmp/" . $SITE . "_sensor.date";
+
+   print STDOUT "SNIF file = $snif_file \n";
+
+   if ( -f $snif_file) {
+      unlink $snif_file;
+   }
+#
+# Fetch current hour identity file from sensor. Remember this one 
+# is the "CURRENT" hour. A date on the call line is the desired hour.
+#
+   @snif_cmd = ($SCP_CMD." -q "."$SENSOR_USER\@${SENSOR}:$SENSOR_DIR/sensor.date ".$snif_file);
+
+   if (system(@snif_cmd) == 0) {
+      print STDOUT "@snif_cmd\n";
+   } else {
+      die("Unable to connect to $SENSOR.");
+   }
+   $snifline=`cat $snif_file`;
+   chomp($snifline);
+   ($snifdate, $tz) = split(/\s+/, $snifline);
+   unlink $snif_file;
+}
+#
+#  Unpack the "snifdate" into its useful components.
+#
+my ($year, $mon, $mday, $hour_only) = unpack($yr_format, $snifdate);
+#
+# Compensate for the way Perl stores months and years.
+$mon -= 1; 
+$year -= 1900;
+#
+# Convert our snif date back to time format.
+#
+if ($tz eq "GMT") {
+   $snif_time = timegm(0, 0, $hour_only, $mday, $mon, $year);
+} else {
+   $snif_time = timelocal(0, 0, $hour_only, $mday, $mon, $year);
+}
+#
+# If the snifdate was obtained from the sensor, subtract an hour - (The
+# sensor is working on the current hour.)
+#
+if ($sdlen == 0) {
+   $snif_time -= 3599;
+}
+#
+# Let's try to keep track of some times. I'm easily confused, so if our
+# sensor is in a different time zone, we need to relate it to GMT cause
+# that seems like the thing to do.
+#
+@gmt_snif_date = gmtime($snif_time);
+#
+# But at the same time, the person at the analyzer needs to relate to
+# the time zone in which he is working. Mentally translating back and
+# forth to GMT is a real pain in the posterior.
+#
+my @loc_snif_date = localtime($snif_time);
+#
+# Lets put the web page information in the timezone of the analyzer. 
+# What timezone are we in?
+#
+POSIX::tzset();
+my ($tz_name, $tz_dst) = POSIX::tzname();
+#
+$TZ = ($tz_name, $tz_dst)[$loc_snif_date[8]];
+$tz_diff = ( 24 + $gmt_snif_date[2] - $loc_snif_date[2]) % 24;
+#
+# I still haven't decided what to do with all this time zone stuff. If
+# all your sensors are in your time zone, no problem. If your sensors are
+# in different time zones, then we need to use GMT time... Or do we?
+#
+if ($tz_diff == 0 ) {
+   @snif_date = @gmt_snif_date;
+} else {
+   @snif_date = @loc_snif_date;
+}
+#
+$snifdate = strftime("%Y%m%d%H", @snif_date);
+$hour_only = strftime("%H", @snif_date);
+$hour = $hour_only . ":00";
+$subdir = strftime("%b%d", @snif_date);
+$output_dir = "${OUTPUT_WEB_DIR}/$subdir";
+
+#print STDOUT "\n$output_dir\n\n";
+#
+print STDOUT "snifdate = $snifdate, dir = $output_dir, hour = $hour\n";
+
+#
+# Predict the previous hour and next hour for html links.
+#
+my $last_hour = strftime("%Y%m%d%H", localtime($snif_time - 3600));
+my $last_hour_dir = "../".strftime("%b%d", localtime($snif_time - 3600));
+#
+my $next_hour = strftime("%Y%m%d%H", localtime($snif_time + 3600));
+my $next_hour_dir = "../".strftime("%b%d", localtime($snif_time + 3600));
+
+#
+#  Make sure subdirectory "MONXX" exists under $ANALYZER_DIR and
+#  on web page
+#
+
+unless ( -d "$ANALYZER_DIR/$subdir") {
+   system("mkdir -m 0755 -p $ANALYZER_DIR/$subdir") == 0 
+    or die "Unable to mkdir $ANALYZER_DIR/$subdir: $?";
+}
+
+unless ( -d "$output_dir") {
+   system("mkdir -m 0755 -p $output_dir") == 0
+    or die "Unable to mkdir $output_dir";
+}
+#
+# Prepare to copy down the raw gzipped tcpdump data file.
+#
+my $src_prefix = "$SENSOR_USER\@${SENSOR}:";
+my $src_dir = "$SENSOR_DIR";
+my $src_file = "$src_dir/tcp.${snifdate}.gz";
+my $dst_dir = "$ANALYZER_DIR/$subdir";
+my $unzipped_file = "$dst_dir/tcp.$snifdate";
+my $zipped_file = $unzipped_file . ".gz";
+#
+# If our raw file is already on the analyzer, don't re-fetch it.
+#
+unless ( (-f $zipped_file)) {
+#
+# Let's see if the file exists on our sensor?
+#
+   $rmt_cmd = "$SSH_CMD -l $SENSOR_USER ${SENSOR} ls $src_file 2>&1";
+   open(REMOTE, "$rmt_cmd|");
+   my $result = <REMOTE>;
+   close(REMOTE);
+   if ($result =~ /No such file/) {
+      die("Unable to locate RAW data file on sensor.");
+   }
+   print STDOUT ("$SCP_CMD -q ${src_prefix}${src_file} $zipped_file\n");
+#
+# It's not on the analyzer, so fetch it from the sensor.
+#
+   system("$SCP_CMD -q ${src_prefix}${src_file} $zipped_file") == 0 or
+      die("Unable to copy zipped Data file from $SENSOR.");
+   chmod 0444, $zipped_file;
+}
+
+my $output_txt_file = "$output_dir/$snifdate.txt";
+my $output_html_file = "$output_dir/$snifdate.html";
+my $prev_out_file = "$last_hour_dir/$last_hour.html";
+my $next_out_file = "$next_hour_dir/$next_hour.html";
+
+##############################################################################
+# This section looks for plugins, and creates the output commands, filehandles,
+# etc., needed to process them.
+#
+
+opendir(PH, "$IDABENCH_SITE_PATH/$Site") or
+    die "Unable to open plugin path directory.\n";
+    
+# Look for plugin directories, discarding those which start with ".", and sort.
+# If a plugin list is defined in a conf file, use it instead.
+if (@IDABENCH::pluglist){
+    @pluglist = @IDABENCH::pluglist;
+} else {
+    @pluglist = sort (grep !/^\./, readdir PH);
+}
+
+# $plugname is the name of a possible plugin directory, such as tcpdump.
+my $filehandle = "fh00";
+my $count = 0;
+my $num_plugins = 0;
+foreach $plugname (@pluglist)
+{
+    next unless opendir(PH, "$IDABENCH_SITE_PATH/$Site/$plugname");
+    my @triggerlist = sort grep !/^\./, readdir PH;
+    closedir PH;
+    # Only consider plugins which have at least one trigger file.
+    next unless scalar(@triggerlist);
+    #print STDOUT "found $plugname:@triggerlist\n";
+
+   # Use local to make sure these are undefined unless the trigger file defines them.
+    local ($pspace::head, $pspace::color, $pspace::individual, $pspace::aggregate);
+    
+    # These two have default values.
+    $pspace::color = "#dddddd";
+    $pspace::head = "$plugname output";
+    
+    # There should be a .ph file for each plugin.  Attempt to "do" it.  Use a
+    # separate namespace, so plugin writers won't inadvertantly overwrite any of
+    # our globals.
+    # The .ph file can define strings $head and $color, and must define function
+    # references "individual" and "aggregate".
+    {
+	package pspace;
+	unless (my $return = do "$IDABENCH::IDABENCH_LIB_PLUGIN_PATH/$IDABENCH::plugname.ph")
+	{
+	    die "Cannot parse $IDABENCH::IDABENCH_LIB_PLUGIN_PATH/$IDABENCH::plugname.ph"
+	    	if $@;
+	}
+    }
+    
+    # These two must be supplied with any plugin
+    die "\"individual\" function not defined in $IDABENCH_LIB_PLUGIN_PATH/$plugname.ph"
+	if (!($pspace::individual));
+
+    die "\"aggregate\" function not defined in $IDABENCH_LIB_PLUGIN_PATH/$plugname.ph"
+	if (!defined($pspace::aggregate));
+	
+    $plugin_color[$num_plugins] = $pspace::color;
+    $plugin_head[$num_plugins] = $pspace::head;
+    $plugin_aggregate[$num_plugins] = $pspace::aggregate;
+    
+    my $trigcount = 0;
+    for my $thistrigger (sort @triggerlist)
+    {
+	$out_handle[$count] = $filehandle++;
+	$out_file[$count] = $output_txt_file . "_$count";
+    	$out_cmd[$count] =  $pspace::individual->(
+	    "$IDABENCH_SITE_PATH/$Site/$plugname/$thistrigger", $out_file[$count]);
+	++$count;
+	++$trigcount;
+    }
+    $plugin_numtriggers[$num_plugins] = $trigcount;
+    ++$num_plugins;
+}
+# Number of processes that will be spawned to handle plugins
+$num_children = $count;
+##############################################################################  
+
+#
+#  Start the html output file.
+#
+
+open(OUTPUT, ">$output_html_file");
+#
+# Write out the HTML header information to the html file.
+#
+print OUTPUT <<"EOF";
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Final//EN">
+<HTML>
+<HEAD>
+<TITLE>Hourly results for $SITE_FORM_LABEL on $subdir at $hour $TZ.</TITLE>
+</HEAD>
+<BODY BACKGROUND = "IDABENCH_RELHTTP_PATH/images/binary.png" BGCOLOR='FFFFE1''> 
+<TABLE WIDTH="100%" CELLSPACING="0" CELLPADDING="0">
+<TR background="IDABENCH_RELHTTP_PATH/images/banner_bg.png">
+<TD ALIGN=LEFT VALIGN=BOTTOM>
+<B><FONT SIZE="+1" COLOR="#cccccc">Site: $SITE_FORM_LABEL - Date: $subdir - $TZ: $hour.</FONT><B>
+</TD>
+<TD ROWSPAN="2" ALIGN=RIGHT VALIGN=MIDDLE>
+<IMG SRC="IDABENCH_RELHTTP_PATH/images/pagelogo.png" BORDER="0"></TD></TR>
+<TR background="IDABENCH_RELHTTP_PATH/images/banner_bg.png"><TD>
+<TABLE CELLSPACING="0" CELLPADDING="0">
+<TR><TD ALIGN=CENTER VALIGN=MIDDLE><A HREF="$prev_out_file"><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/1.png" WIDTH="90" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/2.png" WIDTH="110" HEIGHT="20" HSPACE="0" VSPACE="0"><A HREF="IDABENCH_RELHTTP_PATH/data/hourly_results/$SITE/" TARGET="_top"><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/3.png" WIDTH="50" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/2.png" WIDTH="110" HEIGHT="20" HSPACE="0" VSPACE="0"><A HREF="$next_out_file"><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/5.png" WIDTH="90" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A></TD></TR>
+</TABLE>
+</TD></TR></TABLE>
+
+<table WIDTH="100%" BORDER="1">
+EOF
+
+#
+# See if the Compress::Zlib module is available: Set up the open, read, and
+# close functional references so that we can read the file.
+#
+my ($open_sub, $close_sub, $read_sub, $end_of_file, $file_all_read);
+#if (eval "require Compress::Zlib") {
+#    import Compress::Zlib;
+#    $open_sub = sub {
+#        my $gz = gzopen($_[0], "rb");
+#        $read_sub = get_method_ref($gz, 'gzread');
+#        $close_sub = get_method_ref($gz, 'gzclose');
+#        $end_of_file = get_method_ref($gz, 'gzerror');
+#	return $Compress::Zlib::gzerrno;
+#    }
+
+#} else {
+    $open_sub = sub {
+       $file_all_read = 0;
+       my $file_name = $_[0];
+       my $unzip_cmd = "$IDABENCH::GUNZIP_CMD -c $file_name |";
+       return(open(ZIP_DO, $unzip_cmd));
+     };
+    $read_sub = sub {
+       my $num_to_read = $_[1];
+       my $num_bytes = sysread(ZIP_DO, $_[0], $num_to_read);
+       $file_all_read = 1 if($num_bytes < 1);
+       return $num_bytes; };
+    $close_sub = sub { return(close(ZIP_DO)) };
+    $end_of_file = sub { return $file_all_read; };
+#}
+
+#
+# Open all the output commands, forking a unique child for each plugin filter.
+#
+
+for ($count =0; $count < $num_children; $count++) {
+    if (my $pid = open ($out_handle[$count], "|-")){	#We're the parent
+        print STDOUT ("new child pid $pid = $out_cmd[$count]\n");
+        next;
+    } elsif (defined $pid){ 						#I'm the child 
+        exec ($out_cmd[$count]) or die "Couldn't exec $out_cmd[$count]\n"; 
+    } else {
+        die "fork child for $out_cmd[$count] failed: $!\n";
+    }
+}
+
+#
+# Our output commands are open, read a buffer load from the unzipper, 
+# and feed it to each of the output commands.
+#
+
+my ($buf, $read_len);
+my $blksize = 16384;
+$open_sub->($zipped_file) or die "Could not open $zipped_file\n";
+while ( $read_len = $read_sub->($buf, $blksize)) {
+    if (! $read_len) {
+	next if $! =~ /^Interrupted/;
+	die "System read error: $!\n";
+    }
+    for ($count =0; $count < $num_children; $count++) {
+	my $write_len = $read_len;
+	my $offset = 0;
+	while ($write_len ) {          # Handle partial writes.
+	    my $written = syswrite($out_handle[$count], $buf, $write_len, $offset);
+	    die("System write error: $!\n")
+		unless $written;
+	    $write_len -= $written;
+	    $offset += $written;
+	}
+    }
+}
+$close_sub->();
+
+$count = 0;
+for(my $plugnum = 0; $plugnum < $num_plugins; ++$plugnum)
+{
+    # Use the same output file for each plugin.  Be sure it exists and is empty.
+    open(OUT_TEXT, ">$output_txt_file");
+    close(OUT_TEXT);
+    # Concatenate the output from each plugin process, and unlink the temp.
+    for(my $trignum = 0; $trignum < $plugin_numtriggers[$plugnum]; ++$trignum)
+    {
+	close($out_handle[$count]);
+	`cat $out_file[$count] >> $output_txt_file`;
+	unlink($out_file[$count]);
+	++$count;
+    }
+    print OUTPUT <<"EOF";
+<TR><TD BGCOLOR="$plugin_color[$plugnum]">
+<FONT SIZE = "+1">
+$plugin_head[$plugnum]
+</FONT>
+<BR>
+<PRE>
+EOF
+    # Run the plugin-supplied aggregate function on the concatenation file
+    $plugin_aggregate[$plugnum]->($output_txt_file);
+    # Add a divider line to the HTML page.
+    print OUTPUT "</PRE></TD></TR>\n";
+}
+
+#
+#
+# Append the date information and navigation bar to the end of the HTML page.
+#
+print OUTPUT <<"EOF";
+</TD></TR></TABLE>
+<FONT SIZE="+1" COLOR="#cccccc">Site: $SITE_FORM_LABEL - Date: $subdir - $TZ: $hour.</FONT>
+<HR>
+<TABLE CELLSPACING="0" CELLPADDING="0">
+<TR>
+<TD ALIGN=CENTER VALIGN=MIDDLE><A HREF="$prev_out_file"><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/1.png" WIDTH="90" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/2.png" WIDTH="110" HEIGHT="20" HSPACE="0" VSPACE="0"><A HREF="IDABENCH_RELHTTP_PATH/data/hourly_results/$SITE" TARGET="_top"><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/3.png" WIDTH="50" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/2.png" WIDTH="110" HEIGHT="20" HSPACE="0" VSPACE="0"><A HREF="$next_out_file"><IMG SRC="IDABENCH_RELHTTP_PATH/images/navbars/5.png" WIDTH="90" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A></TD></TR>
+</TABLE>
+
+</BODY>
+</HTML>
+EOF
+close(OUTPUT);
+#
+# Clean up temporary files and exit.
+#
+unlink("${output_txt_file}") if ( -e "${output_txt_file}");
+unlink("${output_txt_file}.sorted") if ( -e "${output_txt_file}.sorted");
+#
+printf STDOUT "%s : %s\n", strftime("%c", localtime(time)), "$0 completed.";
+#
+

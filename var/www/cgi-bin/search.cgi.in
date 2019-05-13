@@ -1,0 +1,1255 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# search.cgi              - idabench v1.0
+#
+#
+use CGI qw/:standard *table/;
+use CGI::Carp qw(fatalsToBrowser);
+use CGI qw/:escapeHTML/;
+use POSIX qw(strftime);
+use Time::Local;
+use Digest::MD5 qw(md5 md5_hex md5_base64);
+
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.");
+
+my $pluginh = "$IDABENCH_LIB_PLUGIN_PATH/plugins.ph";
+unless (my $return = do $pluginh ){
+   die("Unable to parse configuration file $pluginh:\n$@\n") if $@;
+   warn "Unable to determine any plugin paths. No analysis will be done.\n" unless $return;
+}
+
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+
+############################## Get site information ##########################
+# List of the form values for IDABench sensor sites
+our @SiteFormVals = ();
+
+# Read each site.ph file to harvest its $SITE_FORM_LABEL value
+opendir(DH, $IDABENCH_SITE_PATH) or
+    die "Unable to open site path directory.\n";
+    
+while ($sitedir = readdir(DH))
+{
+   next unless -f "$IDABENCH_SITE_PATH/$sitedir/site.ph"; # only interested in directories with site.ph present
+   my $sitename = $sitedir;             # site without extension
+   my $ph_filename = "$IDABENCH_SITE_PATH/$sitedir/site.ph";  # full path to file
+   local $SITE_FORM_LABEL;      # hide any current value; make undefined
+   do $ph_filename;
+   # Pick up value from file, or default to name of site
+   $SITE_FORM_LABEL = $sitename unless $SITE_FORM_LABEL;
+   push @SiteFormVals, $sitename;
+   # Hash of field labels indexed by site name
+   $SiteValueName{$sitename} = $SITE_FORM_LABEL;
+}
+
+closedir(DH);
+
+# A default choice of site can be included in idabench.conf, if desired
+$IDABENCH_SITE_DEFAULT = $SiteFormVals[0] unless $IDABENCH_SITE_DEFAULT;
+
+########## Color Parameters - You can override these in idabench.conf ###########
+our $background = '#b0e2ff' if(!($background)); 
+our $topframe = '#7ec0ee' if(!($topframe));
+our $botframe = '#6ca6cd' if(!($botframe));
+
+###################### Create signal handler to stop processes ################
+POSIX::setsid();
+our $group_pid = $$;
+$SIG{HUP} = sub { kill(-TERM, $$) };
+
+################## Define Javascript for opening a new window #################
+my $JSCRIPT=<<END;
+// Open a window
+function OpenWindow(page, win_name, horiz, vert) {
+        var newwin = window.open(page, win_name,
+            "width="+horiz+",height="+vert+",scrollbars=yes,resizable=yes,status=yes");
+        newwin.focus();
+        if (newwin != null && newwin.opener == null) newwin.opener = self;
+}
+END
+
+###############################################################################
+# Global variables: Define the fields of the form and their characteristics.
+#
+
+# Set default values of date globals
+&make_default_dates();
+
+# Hash of search plugin names
+our %foundplugs = ();
+our $current_tool = &read_search_plugins();
+
+# This will hold a list of field names
+our @parameters = ();
+
+# This will contain all the information needed to produce the input form
+# and validate the input values.
+our %param_info = ();
+
+{
+    # This is a list of field names, each followed by
+    # an anonymous hash of parameter values
+    my @param_list = &build_form_table();
+
+    # Put those anonymous hashes into a hash by field name
+    %param_info = @param_list;
+
+    my $num_params = scalar(@param_list);
+    for (my $pnum = 0; $pnum < $num_params; $pnum += 2)
+    {
+	push @parameters, $param_list[$pnum];
+    }
+}
+
+############################ Begin HTML output ################################
+print header,
+start_html(-title=>'Intrusion Detection pattern search',
+           -script=>$JSCRIPT,
+           -background=>"IDABENCH_RELHTTP_PATH/images/binary.png",
+           -bgcolor=>$background,
+          ),
+start_table({border=>"0", cellpadding=>'0', cellspacing=>'0', width=>"100%"});
+unless (&initial_entry())
+{
+    # The form has been submitted -- process form data #######################
+    select STDOUT; $| = 1;              # make unbuffered
+    
+    # Check the submitted parameters to ensure that they meet sanity checks and
+    # are not deliberate attempts to sabotage this script.
+    #
+    our $aborted = 0;	    # may be altered in check_parameters
+    &check_parameters;
+
+    # Now that parameters are checked, load the values into variables,
+    # or use the default from param_info table.
+    # Note that this creates a global variable for each field name
+    # Also build up a list of parameters to pass on to other tools
+    our $parmpass = "";
+    foreach my $varname (@parameters)
+    {
+      eval "\$$varname = gp(\'$varname\')";
+      if(param($varname))
+      {
+      	my $parval = escapeHTML(&enurl_str(param($varname)));
+	$parmpass .= "&$varname=$parval";
+      }
+    }
+   
+    # Construct start and end dates in formats for user and pat_search.pl
+    our ($bdate, $edate, $date1, $date2);
+    {
+	my $yr1 = $beg_year - 1900;
+	my $yr2 = $end_year - 1900;
+	my $beg_time = timelocal(0, 0, $beg_hour, $beg_day, $month_no{$beg_month}, $yr1);
+	my @beg_date = localtime($beg_time);
+	my $end_time = timelocal(0, 0, $end_hour, $end_day, $month_no{$end_month}, $yr2);
+	my @end_date = localtime($end_time);
+	
+	$bdate = strftime("%Y/%m/%d-%H:00:00", @beg_date);
+	$edate = strftime("%Y/%m/%d-%H:00:00", @end_date);
+	$date1 = strftime("%Y%m%d%H", @beg_date);
+	$date2 = strftime("%Y%m%d%H", @end_date);
+    }
+    
+    if($aborted) {
+        print font({ -size=>+4, color=>'#aaaaff'}, , b("$not_sane"));
+    } else {
+	## Create pat_search cmdline as a list, so that exec will not invoke shell
+	
+	# Plugin should define $takes_file if it takes .gz files instead of stdin
+	my $from_file = $takes_file ? "-f" : "";
+
+	my @cmdline = eval {("$IDABENCH_BIN_PATH/pat_search.pl", $from_file, "-l", $site,
+	    "-b", $date1, "-e", $date2, "-c", &build_search_command_sandbox())};
+	die $@ if(! @cmdline);
+	
+	my $esc_cmdline = escapeHTML(join(" ", @cmdline));
+	
+	print qq/<tr><td>/,
+            table({-cellpadding=>"0", -cellspacing=>"0", -border=>"0"},
+              Tr({align => "center", valign => "bottom", background => "IDABENCH_RELHTTP_PATH/images/banner_bg.png"},
+                td( a({-name=>backnav, -href=>"javascript:history.go(-1)"}, 
+                  img({-src=>"IDABENCH_RELHTTP_PATH/images/navbars/1.png",
+                    -border=>"0",
+                    -alt=>"back"}))),
+                td(img({-src=>"IDABENCH_RELHTTP_PATH/images/navbars/2.png"})),
+                td(a({-name=>abort, -href=>"IDABENCH_RELCGI_PATH/kill_group.cgi?group_pid=${group_pid}",
+                  -target=>'killer',
+                  -onClick=>"OpenWindow('', 'killer', '250','200')"},
+                  img({-src=>"IDABENCH_RELHTTP_PATH/images/navbars/abort.png",
+                    -border=>"0",
+                    -alt=>"abort search"}))),
+                td(img({-src=>"IDABENCH_RELHTTP_PATH/images/navbars/2.png"})),
+                td(a({-name=>printnav, -href=>"javascript:print()"},
+                  img({-src=>"IDABENCH_RELHTTP_PATH/images/navbars/print.png", -border=>"0"}))),
+                td({align=>"right"}, img({ -align=>'right', -src=>"IDABENCH_RELHTTP_PATH/images/pagelogo.png", -height=>'66', -width=>'234'})))),
+            "</td><td></td></tr>",
+            qq|<tr><td background="IDABENCH_RELHTTP_PATH/images/stripe.png" colspan="2">|,
+	    &answer_heading(),
+	    "\n<PRE>\n",
+	    "Search Command: \n$esc_cmdline\n\n";
+	    
+	$max_lines = 2000000 if(!($max_lines ));
+	my $LineCounter = 0;
+	    
+	if(($output_type) and ($output_type ne "html"))
+	{
+	    if($output_type eq "binary")
+	    {
+	    	&createBinaryDump($date1, $date2, $site, &build_search_command_sandbox());
+	    }
+	    else
+	    {
+		print "<table width=\"100%\"><tr><td>&nbsp;</td><td><table border=2><tr><td>";
+		&generate_graph(\@cmdline, \&transform_plugin_line, $line_type, $output_type, $time_interval, url(-path_info=>1,-query=>1));
+		print "</td></tr></table></td></tr></table>";
+	    }
+	}
+	else
+	{
+	    ## Fork, so the selected tool can send its output to a process for display
+	    if ($pid = open(SEARCH, "-|")) {
+
+		# Parent process: take output of pat_search and add it to html
+		while (<SEARCH>) {
+	    	    &transform_plugin_line($_);
+		    next if(++$LineCounter > $max_lines);
+		    $_ =~ s/</&lt;/gm;
+		    $_ =~ s/>/&gt;/gm;
+		    print "$_\n";
+		}
+		close(SEARCH);
+		print "Found $LineCounter lines, displayed ", ($LineCounter > $max_lines) ? $max_lines : $LineCounter, "\n";
+		print p();
+
+	    } else {
+
+		# Child process: exec pat_search so that output can go to parent
+		select STDOUT; $| = 1;              # make unbuffered
+		if ($pattern_error) {
+			print "$pattern_error";
+		} else { 
+			exec(@cmdline);
+		}
+		exit;
+
+	    }
+	}
+
+
+	print "\n</PRE>\n</td></tr>\n";
+    }
+}
+print Tr(td("&nbsp;"));
+print 
+"<tr><td><table background = 'IDABENCH_RELHTTP_PATH/images/bgcolor.png'><tr>",
+    "<td width='750'>",
+        "<tr background = 'IDABENCH_RELHTTP_PATH/images/bgcolor2.png'>",
+            "<td>";
+            &print_filetabs();
+print       "</td><td></td>",
+        "</tr>",
+        "<tr>",
+            "<td>";
+            &print_form();
+print       "</td><td></td>",
+        "</tr>",
+    "</td>",
+"</tr></table></td><td></td></tr>",
+end_table(), end_html();
+
+exit;
+#################################### End main line code ############################
+
+###################################### Subroutines #################################
+#
+# No arguments.
+# Returns a list of elements defining the host choice
+#
+sub choose_host
+{
+    return (
+   site=> {
+	   new => "block",
+	   bgcolor => $topframe,
+           param_label => "Which Sensor: ", 
+           maxlen => "50", 
+           param_type => "popup",
+           values => \@SiteFormVals, 
+           labels => \%SiteValueName,
+           default_value => $IDABENCH_SITE_DEFAULT,
+          },
+   nslookup => {
+	   spacing => "4",
+           param_label => "Host Name Lookup: ",
+           maxlen => "3",
+           param_type => "radio",
+           values => ["Yes", "No"],
+           default_value => "No",
+          },
+   max_lines => {
+	   spacing => "4",
+           param_label => "Max output lines: ",
+           maxlen => "7",
+           param_type => "number",
+	   field_size => "6",
+           min_value => "0",
+           max_value => "3000000",
+           default_value => "10000",
+          }
+    );
+}
+
+# No arguments.
+# Returns a list of elements defining the time choice
+#
+sub choose_time
+{
+    return (
+   beg_year => {
+	   new => "block",
+	   bgcolor => $topframe,
+           param_label => "Start Search - Year: ",
+           maxlen => "4",
+           param_type => "popup",
+           values => \@year_list,
+           default_value => $today_year,
+          },
+   beg_month => {
+           param_label => "Month: ",
+           maxlen => "3",
+           param_type => "popup",
+           values => ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+           default_value => $today_month,
+          },
+   beg_day => {
+           param_label => "Day of Month: ",
+           maxlen => "2",
+           param_type => "popup",
+           values => ["01", "02", "03", "04", "05", "06", "07",
+                      "08", "09", "10", "11", "12", "13", "14",
+                      "15", "16", "17", "18", "19", "20", "21",
+                      "22", "23", "24", "25", "26", "27", "28",
+                      "29", "30", "31", 
+                     ],
+           default_value => $today_mday,
+          },
+   beg_hour => {
+           param_label => "Beginning Hour: ",
+           maxlen => "2",
+           param_type => "popup",
+           values =>   ['00', '01', '02', '03', '04', '05', '06',
+                        '07', '08', '09', '10', '11', '12', '13',
+                        '14', '15', '16', '17', '18', '19', '20',
+                        '21', '22', '23'],
+           default_value => '00',
+           },
+   end_year => {
+	   new => "line",
+           param_label => "End Search - Year: ",
+           maxlen => "4",
+           param_type => "popup",
+           values => \@year_list,
+           default_value => $today_year,
+          },
+   end_month => {
+           param_label => "Month: ",
+           maxlen => "3",
+           param_type => "popup",
+           values => ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+           default_value => $today_month,
+          },
+   end_day => {
+           param_label => "Day of Month: ",
+           maxlen => "2",
+           param_type => "popup",
+           values => ["01", "02", "03", "04", "05", "06", "07",
+                      "08", "09", "10", "11", "12", "13", "14",
+                      "15", "16", "17", "18", "19", "20", "21",
+                      "22", "23", "24", "25", "26", "27", "28",
+                      "29", "30", "31", 
+                     ],
+           default_value => $today_mday,
+          },
+   end_hour => {
+           param_label => "Ending Hour: ",
+           maxlen => "2",
+           param_type => "popup",
+           values =>   ['00', '01', '02', '03', '04', '05', '06',
+                        '07', '08', '09', '10', '11', '12', '13',
+                        '14', '15', '16', '17', '18', '19', '20',
+                        '21', '22', '23'],
+           default_value => '23',
+           }
+    );
+}
+
+# No arguments.
+# Returns a list of elements defining tcpdump options
+#
+sub choose_tcpdump
+{
+    return (
+   hostname => {
+	    new => "block",
+	    required => "oneof",
+            param_label => "Search for a specific IP or host: ",
+            field_size => "30",
+            maxlen => "30",
+            param_type => "string",
+            validity_string => 'A-Za-z0-9()_.',
+          },
+   host_mod => {
+	    spacing => "1",
+            # param_label => "Host modifier",
+            maxlen => "6",
+            param_type => "radio",
+            values => [ "src", "dst", "either" ],
+            default_value => "either",
+           },
+   port_join => {
+	    new => "line",
+            # param_label => "Port conjunction",
+            maxlen => "3",
+            param_type => "popup",
+            values => [ "and", "or" ],
+            default_value => "or",
+           },
+   port_num => {
+	    required => "oneof",
+            param_label => " Search for a specific port: ",
+            maxlen => "5",
+            param_type => "number",
+            min_value => "0",
+            max_value => "65535",
+            default_value => "",
+           },
+   port_mod => {
+	    spacing => "1",
+            # param_label => "Port modifier",
+            maxlen => "6",
+            param_type => "radio",
+            values => [ "src", "dst", "either" ],
+            default_value => "either",
+           },
+   net_join => {
+	    new => "line",
+            # param_label => "Net conjunction",
+            maxlen => "3",
+            param_type => "popup",
+            values => [ "and", "or" ],
+            default_value => "or",
+           },
+   netname => {
+	    required => "oneof",
+            param_label => " Search for a specific network: ",
+            field_size => "30",
+            maxlen => "50",
+            param_type => "string",
+            validity_string => '-/A-Za-z0-9.',
+           },
+   net_mod => {
+	    spacing => "1",
+            # param_label => "Net modifier",
+            maxlen => "6",
+            param_type => "radio",
+            values => [ "src", "dst", "either" ],
+            default_value => "either",
+           },
+   gen_join => {
+	    new => "line",
+            # param_label => "General conjunction",
+            maxlen => "3",
+            param_type => "popup",
+            values => [ "and", "or" ],
+            default_value => "or",
+           },
+   gen_pat => {
+	    required => "oneof",
+            param_label=>" Search with a general filter: ",
+            field_size => "50",
+            maxlen => "500",
+            param_type => "string",
+            validity_string => '- /A-Za-z0-9()_,.;:$[]<>=!&',
+           }
+    );
+}
+
+sub choose_tcpdump_mods
+{
+    (
+   verbose => {
+	    new => "block",
+            param_label => "Choose level of detail (verbosity):",
+            maxlen => "7",
+            param_type => "radio",
+            values => [ "default", "1", "2", "3" ],
+            default_value => "default",
+           },
+   hexa => {
+	    spacing => "3",
+            param_label => "Print output in hexadecimal?",
+            maxlen => "3",
+            param_type => "radio",
+            values => [ "Yes", "No" ],
+            default_value => "No",
+           }
+    );
+}
+#
+# No arguments.
+# Returns a list of elements defining the host choice
+#
+sub choose_graph
+{
+    return (
+   output_type => {
+	   new => "block",
+           param_label => "Display output as ", 
+           maxlen => "12", 
+           param_type => "popup",
+           values => ["html", "png", "postscript"], 
+           default_value => "html",
+          },
+   time_interval => {
+           new => "line",
+           param_label => "If graphing, display packets per ",
+           maxlen => "8",
+           param_type => "popup",
+           values => [ "second", "minute", "hour", "day"],
+           default_value => "second",
+          },
+   line_type => {
+           param_label => "using  ",
+           maxlen => "12",
+           param_type => "popup",
+           values => [ "lines", "impulses", "bezier", "points", "linespoints", "dots", "steps", "boxes" ],
+           default_value => "lines",
+          }
+    );
+}
+#
+# No arguments.
+# Returns a list of elements defining the host choice
+#
+sub choose_bin
+{
+    return (
+   output_type => {
+	   new => "block",
+           param_label => "Display output as ", 
+           maxlen => "12", 
+           param_type => "popup",
+           values => ["html", "binary"], 
+           default_value => "html",
+          },
+   time_interval => {
+           new => "line",
+           param_label => "If graphing, display packets per ",
+           maxlen => "8",
+           param_type => "popup",
+           values => [ "second", "minute", "hour", "day"],
+           default_value => "second",
+          },
+   line_type => {
+           param_label => "using  ",
+           maxlen => "12",
+           param_type => "popup",
+           values => [ "lines", "impulses", "bezier", "points", "linespoints", "dots", "steps", "boxes" ],
+           default_value => "lines",
+          }
+    );
+}
+
+#
+# No arguments.
+# Returns a list of elements defining the host choice
+#
+sub choose_graphbin
+{
+    return (
+   output_type => {
+	   new => "block",
+           param_label => "Display output as ", 
+           maxlen => "12", 
+           param_type => "popup",
+           values => ["html", "png", "postscript", "binary"], 
+           default_value => "html",
+          },
+   time_interval => {
+           new => "line",
+           param_label => "If graphing, display packets per ",
+           maxlen => "8",
+           param_type => "popup",
+           values => [ "second", "minute", "hour", "day"],
+           default_value => "second",
+          },
+   line_type => {
+           param_label => "using  ",
+           maxlen => "12",
+           param_type => "popup",
+           values => [ "lines", "impulses", "bezier", "points", "linespoints", "dots", "steps", "boxes" ],
+           default_value => "lines",
+          }
+    );
+}
+
+# No arguments.
+# Print file tabs across the top to provide access to plugin search tools
+#
+sub print_filetabs {
+    my @toollinks = 
+            td({ -background=>"IDABENCH_RELHTTP_PATH/images/toptab.png", width=>100, -align=>'CENTER', -wrap=>'no'},
+               a(font({-size=>-1, color=>'#000000'}, b("$current_tool Search"))));
+
+    foreach (sort keys %foundplugs)
+    {
+    	push @toollinks,
+	    td({ -background=>"IDABENCH_RELHTTP_PATH/images/toptab2.png", -id=>1, -class=>'q', -width=>70,
+    	    	-align=>'CENTER', -wrap=>'no'},
+    	    	a({ -id=>'$1a', -class=>'q', 
+		    -target=> 'search',
+		    -href=>"search.cgi?tool=$_$parmpass",
+        	    -onClick=>"OpenWindow('search.cgi?tool=$_', 'search', '670', '650')"
+    	    	}, font({ -size=>-1, color=>'#000000'}, b("$_ Search")))),
+	"\n";
+    }
+    print table({ -border=>'0', -cellspacing=>'0', -cellpadding=>'0'}, Tr(@toollinks));
+}
+
+# One argument: field name
+# Return a list of the text for a popup menu using the possible values of this field
+#
+sub UI_popup_menu {
+    my $name = shift;
+    popup_menu(-name=>$name,
+    	    -values=>$param_info{$name}{values},
+	    -labels=>$param_info{$name}->{labels},
+	    -default=>$param_info{$name}{default_value});
+}
+
+# One argument: field name
+# Return a list of the text for a radio group using the possible values of this field
+#
+sub UI_radio_group {
+    my $name = shift;
+    radio_group(-name=>$name,
+               -values=>$param_info{$name}{values},
+               -default=>$param_info{$name}{default_value});
+}
+
+#
+# Subroutine to create a text field from param_info table
+#
+sub UI_textfield {
+    my $name = shift;
+    textfield(-name=>$name,
+             -size=>$param_info{$name}{field_size},
+             -maxlength=>$param_info{$name}{maxlen},
+             -default=>$param_info{$name}{default_value});
+}
+
+# One argument: field name
+# Return a field's label, or blank if none.
+#
+sub UI_label {
+    my $name = shift;
+    my $label = $param_info{$name}{param_label};
+    $label = "" if(!($label));
+    return $label;
+}
+
+# One argument: field name
+# Return a list of the text for a popup menu using the possible values of this field
+# If the field has a label in param_info, use it to label the menu.
+sub UI_label_popup {
+    my $name = shift;
+    (UI_label($name), UI_popup_menu($name));
+}
+
+# One argument: field name
+# Return a list of the text for a radio group using the possible values of this field
+# If the field has a label in param_info, use it to label the group.
+sub UI_label_radio {
+    my $name = shift;
+    (UI_label($name), UI_radio_group($name));
+}
+
+# One argument: field name
+# Return a list of the text for a text input field.
+# If the field has a label in param_info, use it to label the input box.
+#
+sub UI_label_textfield {
+    my $name = shift;
+    (UI_label($name), UI_textfield($name));
+}
+
+# No arguments.
+# Print the input form.
+#
+sub print_form
+{
+    my @formbody = ();
+    my @blockbody = ();
+    my @linebody = ();
+    my $bgcolor = $topframe;
+    my $blockname = "";
+    ## Assemble form body from parameters hash
+    foreach my $fldname (@parameters)
+    {
+    	## See if this line marks a new line or block
+    	my $newthing = $param_info{$fldname}{"new"};
+	
+	## if it's a new anything, add any previous line to previous block
+	endline(\@linebody, \@blockbody) if($newthing);
+	
+	if($newthing eq "block")
+	{
+	    endblock(\@blockbody, \@formbody, $bgcolor, \$blockname);
+	    
+	    ## New block can define a new bgcolor if desired
+	    $bgcolor = $param_info{$fldname}{bgcolor}
+	    	if ($param_info{$fldname}{bgcolor});
+		
+	    $blockname = $param_info{$fldname}{blockname}
+	    	if ($param_info{$fldname}{blockname});
+	}
+	my $numspaces = $param_info{$fldname}{spacing};
+	if($numspaces)
+	{
+	    while($numspaces-- > 0)
+	    {
+	    	push @linebody, "&nbsp;";
+	    }
+	}
+	my $param_type = $param_info{$fldname}{"param_type"};
+	$param_type = "radio" if (!($param_type));   # will cause visible error
+	
+	push @linebody, UI_label_radio($fldname) if($param_type eq "radio");
+	push @linebody, UI_label_popup($fldname) if($param_type eq "popup");
+	push @linebody, UI_label_textfield($fldname)
+	    if(($param_type eq "string") or ($param_type eq "number"));
+    }
+    ## Now that all fields are processed, finish up line and block
+    endline(\@linebody, \@blockbody);
+    endblock(\@blockbody, \@formbody, $bgcolor, \$blockname);
+    
+    print h1({-align=>CENTER}, $heading),
+    start_form(-target=>'_self', -method=>'get'),
+    submit(-name=>'Action', -label=>'Search'),
+    hidden(-name=>'tool', -default=>$current_tool),
+    p(),
+    table({-align=>'CENTER', -border=>'1', -bordercolor=>'#dddddd',
+             -cellspacing=>'0', -cellpadding=>'1'}, @formbody),
+    	    p(), submit(-name=>'Action', -label=>'Search'), end_form;
+}
+
+#
+# Arguments: \@linebody, \@blockbody
+#
+sub endline
+{
+    my($lineref, $blockref) = @_;
+    
+    # If there are any values in the line so far, push them on block with p()
+    push @$blockref, (@$lineref, p()) if(@$lineref);
+    
+    # then clear the line
+    @$lineref = ();
+}
+
+#
+# Arguments: \@blockbody, \@formbody, $bgcolor, \$blockname
+#
+sub endblock
+{
+    my ($blockref, $formref, $bgcolor, $blocknameref) = @_;
+    
+    # Unless we're just starting, add the previous block to the form
+    push @$formref, Tr(td({-bgcolor=>$bgcolor},
+    	$$blocknameref ? h4($$blocknameref) : p(), p(), @$blockref)) if(@$blockref);
+    
+    # Then clear the block
+    @$blockref = ();
+    $$blocknameref = "";
+}
+
+# One argument : string to url encode
+# Returns encoded string
+sub enurl_str {
+    my $KeepUnencoded = 'a-zA-Z 0-9_\\-@.=';
+    my($toencode) = @_;
+    $toencode=~s/([^$KeepUnencoded])/sprintf("%%%02X",ord($1))/ego;
+    $toencode=~s/ /+/gm;
+    return $toencode;
+}
+
+# One argument: field name
+# Return the input value or the default from $param_info
+#
+sub gp {
+    my $name = shift;
+    return (param($name)) ? param($name) : $param_info{$name}{default_value};
+}
+
+# No arguments.
+# Check the submitted parameters for validity.
+#
+sub check_parameters {
+   # First look for required fields
+   my ($needtosearch, $amsearching) = (0, 0);
+   foreach (@parameters)
+   {
+    	my $requirement = $param_info{$_}{required};
+	next if(!($requirement));
+	if(($requirement eq "yes") and (!(param($_))))
+	{
+            our $not_sane = "Field $param_info{$_}{param_label} is required";
+            $aborted++;
+	} elsif($requirement eq "oneof")
+	{
+	    # If there are any "oneof" fields,
+	    # at least one of them must be filled in to have valid search
+	    $needtosearch = 1;
+	    $amsearching = 1 if(param($_) and length(param($_)));
+	}
+   }
+   if ($needtosearch && !$amsearching)
+   {
+        $aborted++;
+        our $not_sane = "Please specify something for which to search:";
+   }
+
+   # Now see that the parameters actually supplied are valid
+   unless ($aborted) {
+      foreach my $p (param()) {
+         my $errors_found = 0;
+	 # Allow Action parameter, not in table
+         next if ($p eq 'Action');
+	 # Allow tool parameter, not in table
+         next if ($p eq 'tool');
+	 
+         my $pval = param($p);
+	 # Allow zero-length parameter
+         next if (length($pval) == 0);
+	 
+	 # Reject if too long
+         $errors_found++ if (length($pval) > $param_info{$p}{maxlen});
+	 
+         unless ($errors_found) {
+	    my $param_type = $param_info{$p}{param_type};
+            if ($param_type eq "string") {
+	    
+	       # For string parameters, reject any characters not in validity string
+               my $validstr = $param_info{$p}{validity_string};
+               # Escape slashes in validity string so tr won't be confused
+               $validstr =~ s{\\}{\\\\}g;
+               $validstr =~ s{/}{\\/}g;
+               $_ = $pval;
+                eval "tr/$validstr//d";
+               $errors_found++ if (length($_));
+
+            } elsif (($param_type eq "popup") or ($param_type eq "radio")) {
+	    
+	       # For radio or popups, allow only values in param table
+               $errors_found++ unless (grep { /$pval/ } @{ $param_info{$p}{values} });
+	       
+            } elsif ($param_type eq "number") {
+	    
+	    	# Range check numbers
+               $errors_found++ if (($pval < $param_info{$p}{min_value}) or 
+                                    ($pval > $param_info{$p}{max_value}));
+            }
+         }
+	 
+         if ($errors_found) {
+	    my $fieldlabel = $param_info{$p}{param_label};
+	    if($fieldlabel)
+	    {
+            	our $not_sane = "Invalid value $pval for: $fieldlabel.";
+	    }
+	    else
+	    {
+            	our $not_sane = "Invalid value: $pval.";
+	    }
+         }
+         $aborted += $errors_found;
+      }
+   }
+   plugin_validation();
+}
+
+
+#
+# Subroutine to format date/time stamp from tcpdump's -tt (epoch seconds) output.
+# The old method of prefixing date derived from dumpfile name failed when rolling
+# over the midnight hour.
+#
+sub dtformat {
+	my $dumpline = "@_";
+        chomp $dumpline;
+	if ( $dumpline =~ m/^([0-9]){10}\.([0-9]){6}/) { 
+	        my @line = split / /, $dumpline, 2;
+	        my @secsusecs = split /\./, $line[0], 2 ;
+	        if ($timefmt eq "gmt"){		# Future plans here
+	                ($sec,$min,$hour,$mday,$mon,$year) = gmtime($secsusecs[0]);
+	        } else {
+	        	($sec,$min,$hour,$mday,$mon,$year) = localtime($secsusecs[0]);
+	        }
+	        my @retline = (($year + 1900) 
+	        . "/" . sprintf("%02d", $mon+1) 
+	        . "/" . sprintf("%02d", $mday)
+	        , " ", sprintf("%02d", $hour) 
+	        . ":" . sprintf("%02d", $min) 
+	        . ":" . sprintf("%02d", $sec) 
+	        . ".$secsusecs[1] $line[1]")
+	        ;
+		@_[0] = join("", @retline);
+	} else { @_[0] = $dumpline; }
+}
+
+# No arguments.
+# Build the Berkeley Packet Filter string from the
+# tcpdump search terms specified in the form.
+#
+sub bpf_pat_build
+{
+    my $bpfpat = "";
+    
+    if ($hostname) {
+	$bpfpat .= "$host_mod "  if ($host_mod ne "either");
+	$bpfpat .= "host $hostname ";
+    }
+    if (length($port_num)) {
+	$bpfpat .= "$port_join " if ($bpfpat);
+	$bpfpat .= "$port_mod " if ($port_mod ne "either");
+	$bpfpat .= "port $port_num ";
+    }
+    if ($netname) {
+	$bpfpat .= "$net_join " if ($bpfpat);
+	$bpfpat .= "$net_mod "  if ($net_mod ne "either");
+	$bpfpat .= "net $netname ";
+    }
+    if ($gen_pat) {
+	my $simplepat = 1 if ($bpfpat);
+	$bpfpat .= "$gen_join " if ($simplepat);
+	$bpfpat .= "(" if ($simplepat);
+	$bpfpat .= "$gen_pat";
+	$bpfpat .= ")" if ($simplepat);
+    }
+    return $bpfpat;
+}
+
+# No arguments.
+# Initialize date and time globals.
+#
+sub make_default_dates
+{
+    %month_no = (
+       "Jan" => 0, "Feb" => 1, "Mar" => 2, "Apr" => 3, "May" => 4, "Jun" => 5,
+       "Jul" => 6, "Aug" => 7, "Sep" => 8, "Oct" => 9, "Nov" => 10, "Dec" => 11);
+    #
+    my $time_now = time;
+    my @today = localtime($time_now);
+    $today_mday = strftime("%d", @today);
+    $beg_day = $today_mday;
+    $end_day = $today_mday;
+    $today_month = strftime("%h", @today);
+    $beg_month = $today_month;
+    $end_month = $today_month;
+    $today_year = strftime("%Y", @today);
+    $beg_year = $today_year;
+    $end_year = $today_year;
+    @year_list = ($today_year - 4, $today_year - 3, $today_year - 2,
+       $today_year - 1, $today_year);
+}
+
+# No arguments
+# If the parameter "tool" has a value, use the tool with that name, if found
+# Otherwise, use the first tool alphabetically.
+# "do" the requested plugin tool.  This should define:
+#    a subroutine build_form_table
+#    a subroutine build_search_command
+#    a subroutine plugin_validation
+#    a subroutine transform_plugin_line
+#    a subroutine answer_heading
+#    the string $heading
+#
+# Return the name of the currently selected tool.
+sub read_search_plugins
+{
+    opendir(SE, "$IDABENCH_LIB_PLUGIN_PATH") or
+	die "Unable to open plugin path directory.\n";
+
+    # Look for plugin files, discarding those which start with .
+    my @pluglist = grep !/^\./, readdir SE;
+    closedir SE;
+
+    # $plugname is the name of a possible plugin file.
+    # Only the ones ending in .se are of interest
+    my $num_plugins = 0;
+    foreach my $plugname (@pluglist)
+    {
+	next if !($plugname =~ /(.*)\.se/);
+
+	$foundplugs{$1} = 1; # strip .se extension
+	$num_plugins++;
+    }
+
+    die "Unable to find any search plugins.\n" if !$num_plugins;
+
+    my $thistool = param("tool");
+    # If no tool specified, or tool is not available, use 1st in alphabetical order
+    $thistool = (sort keys %foundplugs)[0] if(!$thistool or !exists($foundplugs{$thistool}));
+
+    delete $foundplugs{$thistool};
+
+    unless (my $return = do "$IDABENCH_LIB_PLUGIN_PATH/$thistool.se")
+    {
+	die "Cannot parse $IDABENCH_LIB_PLUGIN_PATH/$thistool.se"
+	    if $@;
+	die "Cannot do $IDABENCH_LIB_PLUGIN_PATH/$thistool.se $!"
+	    unless $return;
+	die "Cannot run $IDABENCH_LIB_PLUGIN_PATH/$thistool.se";
+    }
+
+    return $thistool;
+}	
+
+# No arguments.
+# Return true if no values have been submitted
+#
+sub initial_entry
+{
+    return !(param("Action"));
+}
+
+# No arguments
+# In case build_search_command cannot avoid creating output which would go
+# to the html stream, redirect STDOUT and STDERR before calling it.
+sub build_search_command_sandbox
+{
+    open(OLDOUT, ">&STDOUT");
+    open(OLDERR, ">&STDERR");
+    open(STDOUT, "> /dev/null");
+    open(STDERR, ">&STDOUT");
+    my $retval = eval { &build_search_command(); };
+    my $errmess = $@;
+    close(STDOUT);
+    close(STDERR);
+    open(STDERR, ">&OLDERR");
+    open(STDOUT, ">&OLDOUT");
+    close(OLDOUT);
+    close(OLDERR);
+    die $errmess if(!($retval));
+    return $retval;
+}
+
+sub generate_graph {
+
+    *searchCmd = @_[0];
+    my $formatSub = @_[1];
+    my $lineType = @_[2];
+    my $graphFormat = @_[3];
+    my $timeInterval = @_[4];
+    my $queryURL = @_[5];
+
+    my $URLHash = md5_hex($queryURL);
+    my $tempfilename, $tempfilelocal;
+    if ($graphFormat eq "postscript") {
+	$tempfilename = "$URLHash.ps";
+	$tempfilelocal = "$IDABENCH_WEB_SPOOL_LOCAL/$tempfilename";
+	
+	if (-e $tempfilelocal) {
+	    print "<A HREF=\"$IDABENCH_WEB_SPOOL_URL/$tempfilename\">Click here to download graph.</A>";
+	    return;
+	}
+	
+    }
+    else {
+	$tempfilename = "$URLHash.$graphFormat";
+	$tempfilelocal = "$IDABENCH_WEB_SPOOL_LOCAL/$tempfilename";
+
+	if (-e $tempfilelocal) {
+	    print "<IMG ALIGN=CENTER SRC=\"$IDABENCH_WEB_SPOOL_URL/$tempfilename\">";
+	    return;
+	}
+	
+    }
+
+    purgeOldFiles($IDABENCH_WEB_SPOOL_LOCAL, $IDABENCH_TEMP_FILE_LIFESPAN);
+
+    my ($timeExp, $timefmt, $currentCount, $previousLine);
+	
+    if ($timeInterval eq "second") {
+	$timeExp = "\\..*";
+	$timefmt = "\"%Y/%m/%d_%H:%M:%S\"";
+    }
+    elsif ($timeInterval eq "minute") {
+	$timeExp = ":..\\..*";
+	$timefmt = "\"%Y/%m/%d_%H:%M\"";
+    }
+    elsif ($timeInterval eq "hour") {
+	$timeExp = ":.*";
+	$timefmt = "\"%Y/%m/%d_%H\"";
+    }
+    elsif ($timeInterval eq "day") {
+	$timeExp = " .*";
+	$timefmt = "\"%Y/%m/%d\"";
+    }
+    else
+    {
+	die "Invalid timeInterval parameter: $timeInterval!";
+    }
+    
+    $pid = open(GNUPLOT, "|-");
+	
+    if ($pid) { # parent
+	
+	open GNUPLOTSCRIPT, "gnuplot.seed";
+	while (<GNUPLOTSCRIPT>) {
+	    print GNUPLOT;
+	}
+	close GNUPLOTSCRIPT;
+	
+	print GNUPLOT "set format x $timefmt\n";
+	print GNUPLOT "set timefmt $timefmt\n";
+	if ($graphFormat eq "png") {
+	    print GNUPLOT "set terminal png small color\n";
+	}
+	elsif ($graphFormat eq "postscript") {
+	    print GNUPLOT "set terminal postscript\n";
+	}
+	print GNUPLOT "set output \"$IDABENCH_WEB_SPOOL_LOCAL/$tempfilename\"\n";
+	if ($lineType eq "bezier") {
+	    print GNUPLOT "plot \"-\" using 2:1 smooth bezier title \"pkts/$timeInterval\"\n";
+	}	    
+	else {
+	    print GNUPLOT "plot \"-\" using 2:1 title \"pkts/$timeInterval\" with $lineType\n";
+	}
+
+	if ($pid = open(SEARCH, "-|")) {
+	    
+	    my $counter = 0;
+	    
+	    while (<SEARCH>) {
+#		print GNUPLOT;
+		&$formatSub($_);
+		next if /^\s*$/;
+		s/$timeExp//g;
+		s/ /_/g;
+		
+		if ($_ eq $previousLine) {
+		    $currentCount++;
+		}
+		else {
+		    if ($currentCount > 1) {
+			print GNUPLOT "$currentCount $previousLine\n";
+		    }
+		    $currentCount = 1;
+		}
+		$previousLine = $_;
+		
+		$counter++;
+		if ($counter > 9999) {
+		    $counter = 0;
+		    print ".";
+		}
+		
+            }
+            close SEARCH;
+        } else {
+            open(STDOUT, ">/dev/null");
+            open(STDERR, ">$STDOUT");
+            exec(@searchCmd);
+            exit;
+	}	
+	close GNUPLOT;
+	exit;
+    } else { #child
+        if ($pattern_error){
+            print "$pattern_error";
+            return;
+        } elsif($error = (system "gnuplot")){
+	    die "Error $error while executing gnuplot";
+	} else { # gnuplot exited successfully
+            print <<ENDOFRELOAD;
+            <script language="Javascript">
+            <!--
+              document.location.reload();
+            //-->
+            </script>
+            <P>If your browser does not automatically refresh within 5 seconds, please click the Reload button.</P>
+ENDOFRELOAD
+    	    return;
+    	} # end of "gnuplot exited successfully"
+    } # end of child process
+} # end of subroutine
+
+sub createBinaryDump {
+
+    my ($beg_date, $end_date, $site, $search_cmd) = @_;
+
+    if ($pid = open(SEARCH, "-|")) {
+	
+	while (<SEARCH>) {
+	    print;
+	}
+	close SEARCH;
+    }
+    else {
+	
+	my @cmdline = ("$IDABENCH_BIN_PATH/tcp_slice_dump.pl", $beg_date, $end_date, $site, $search_cmd);
+	select STDOUT; $| = 1;              # make unbuffered
+	exec(@cmdline);
+    }
+}
+
+sub purgeOldFiles {
+
+    my ($pathToFiles, $maxDays) = @_;
+
+#    print "purgeOldFiles was called with $pathToFiles and $maxDays\n";
+
+    my $cutoffTime = time - ($maxDays * 24 * 60 *60);
+
+    opendir (DIR, $pathToFiles);
+    my @files = grep (/[^.]/, readdir(DIR));
+
+    my $fileTime, $fileTimePretty;
+    foreach $file (@files) {
+
+	$file = "$pathToFiles/$file";
+	$fileTime = (stat("$file"))[9];
+
+	if ($fileTime < $cutoffTime) {
+#	    print "$file is more than $maxDays days old!\n";
+	    unlink ($file);
+	}
+	
+    }
+}

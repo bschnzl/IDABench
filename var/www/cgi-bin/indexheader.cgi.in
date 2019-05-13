@@ -1,0 +1,45 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# indexheader.cgi              - idabench v1.0
+#
+#
+use CGI qw/:standard *table/;
+use CGI::Carp qw(fatalsToBrowser);
+use CGI::Pretty;
+############################ Begin HTML output ################################
+print header,
+start_html(-title=>'IDABench Hourly Results',
+           -script=>$JSCRIPT,
+           -background=>"IDABENCH_RELHTTP_PATH/images/binary.png",
+           -bgcolor=>$background,
+          ),
+start_table({border=>"0", background=>"IDABENCH_RELHTTP_PATH/images/bgcolor.png", cellpadding=>'10', cellspacing=>'0', width=>"100%"}),
+    Tr(
+        td(
+            {align=>"center",
+            -background=>"IDABENCH_RELHTTP_PATH/images/banner_bg.png"}, 
+            img({
+                -align=>'left', 
+                -src=>"IDABENCH_RELHTTP_PATH/images/banner_ida.png", 
+                -height=>'66', 
+                -width=>'553'}
+            )
+        )
+    ),
+    "<tr>
+        <td align=\"left\"> 
+        <h2>$ENV{qq|REQUEST_URI|}</h2>
+        <br>
+";
+
+# The webserver apends the directory listing at this point, followed by the
+# footer. NOTE: the footer must contain the necessary closing tags for the
+# currently open cell, row & table, as well as the body & html close tags.

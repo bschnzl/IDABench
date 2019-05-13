@@ -1,0 +1,13 @@
+# filter.getall
+# This filter identifies the packets that are to be examined for scan-like
+# behavior by the findscan plugin. Findscan.ph calls tcpdump to extract only
+# those records that may be interesting (according to this filter), then looks
+# for individual sources that talk to multiple destination hosts and/or ports.
+
+var MYNET = 10.0.0.0/22
+
+#
+ip and not src net $MYNET
+
+#we'll ignore traffic that looks like http and https from servers to clients
+and not	((src port 80 or src port 443) and (tcp[2:2] > 1023) and (tcp[13] & 0x3f !=2))

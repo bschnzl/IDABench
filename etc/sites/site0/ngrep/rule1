@@ -1,0 +1,4 @@
+# Detect Code Red and variants
+#
+/default.id[aq]\?.*([[:alnum:]])\1\1\1\1\1\1
+tcp and dst port 80

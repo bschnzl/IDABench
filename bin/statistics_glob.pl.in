@@ -1,0 +1,72 @@
+#! /usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+#  statistics_glob.pl             - idabench Version 1.0
+#
+#  Script to read a subdirectory of raw tcpdump hourly files, look at 
+#  the packets, and produce some statistics about the traffic seen in 
+#  those files. Optionally uses the Compress::Zlib Perl module to 
+#  directly read gzipped files.
+#
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local our $sym = $main::{$_};
+    next if(!defined($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+#
+require "$IDABENCH_LIB_PATH/statistics.ph";
+#
+# First calling parameter is directory containg gzipped raw data files.
+# Second calling parameter is name of text output file.
+#
+$files_dir = shift;
+die("No such directory: $files_dir.") unless (-d $files_dir);
+$outfile = shift;
+print STDOUT "Raw file directory: $files_dir.\n";
+print STDOUT "Output file: $outfile.\n" if (-e $outfile);
+#
+# Switch to the directory containing the raw data files and generate a
+# list of them.
+#
+chdir($files_dir);
+#
+@data_files = glob("tcp.*.gz");
+@processed_files = ();
+die("No raw files found.") unless (scalar(@data_files));
+#
+# Loop through each of the raw data files.
+#
+foreach $rawfile (@data_files) {
+#
+   next if (grep /$rawfile/, @processed_files);
+   print STDOUT "Processing file: $rawfile.\n";
+   &read_rawfile($rawfile);
+   push @processed_files, $rawfile;
+   @data_files = glob("tcp.*.gz");
+}
+
+#
+# Print the statistics summaries.
+#
+&printem($outfile);
+#
+# End of statistics_glob.pl

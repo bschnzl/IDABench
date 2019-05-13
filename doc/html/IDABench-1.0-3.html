@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Concepts of Operation</TITLE>
+ <LINK HREF="IDABench-1.0-4.html" REL=next>
+ <LINK HREF="IDABench-1.0-2.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc3" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-4.html">Next</A>
+<A HREF="IDABench-1.0-2.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc3">Contents</A>
+<HR>
+<H2><A NAME="concepts"></A> <A NAME="s3">3. Concepts of Operation</A></H2>
+
+<P>IDABench isn't an intrusion detection system. It's not an analysis tool. In all
+honesty, it doesn't really DO anything. Instead, IDABench provides a convenient
+workbench for human analysts to explore network events using a myriad of tools
+and techniques. If a certain analysis utility isn't available in IDABench, a
+plugin API simplifies its integration.
+<P>
+<H2><A NAME="rawcapture"></A> <A NAME="ss3.1">3.1 Raw data capture</A>
+</H2>
+
+<P>IDABench sensors are installed at network ingress/egress points where malicious
+activity is likely to traverse. The DMZ (Demilitarized Zone) is the area
+physically between the route into your network and the filtering systems
+emplaced to defend it. This is the most beneficial location to deploy a sensor,
+as the majority of malicious activity (that network packet analysis is suited 
+to) will traverse this segment. Any other untrusted/trusted network border is a
+candidate for sensor deployment.
+<BLOCKQUOTE><CODE>
+<PRE>
+  BIG BAD                     (DMZ)                 SOFT SQUISHY
+ UNTRUSTED -------- ROUTER ---------- FIREWALL ---TRUSTED INTERNAL
+  NETWORK                       v                     NETWORK
+                                v
+                                v (sniffing only)
+                                v
+                                v
+                             IDABench ------------ IDABench
+                              Sensor               Analyzer
+</PRE>
+</CODE></BLOCKQUOTE>
+
+The IDABench sensor is simply any Unix-like system that runs a libpcap-based
+sniffer program (tcpdump) to record all of the traffic that traverses the
+network segment it is monitoring. The appropriate network interface is placed
+in promiscuous mode by the sniffer so that all traffic, regardless of source or
+destination address, is available for capture. That captured data is compressed
+on the fly for short- term storage and named according to the date-time group
+of the current hour.  Each hour, using crond(8), the sensor is re-initialized,
+so that the previous hour's file is closed out and a new file begun. In this
+way, the otherwise unwieldy volume of packet data is made available in somewhat
+more bite-sized chunks.
+<P>
+<P>To lessen the risk of sensor compromise, a special account is created on the
+sensor and ownership of these dumpfiles is changed to that user. When the 
+dumpfiles are retrieved by the analyzer, this account is used. 
+<P>
+<P>This capture process is controlled by the <CODE>>sensor_driver.pl</CODE> script. There
+are two required parameters:
+<BLOCKQUOTE><CODE>
+<PRE>
+[root@spleen sensor]# ./sensor_driver.pl 
+        Usage: ./sensor_driver.pl &lt;start|stop|restart> &lt;ALL|site1 . . .>
+</PRE>
+</CODE></BLOCKQUOTE>
+
+The first speaks for itself. The second parameter instructs 
+<CODE>sensor_driver.pl</CODE> which "site"'s sniffer should be started or stopped. 
+<P>
+<H2><A NAME="partialcap"></A> <A NAME="ss3.2">3.2 Partial captures</A>
+</H2>
+
+<P>If a dump session is aborted and then resumed within the same hour,
+IDABench will rename the previous partial logfile by appending MMSS to the 
+filename root. Here's an example: 
+<BLOCKQUOTE>
+The current dumpfile is <CODE>tcp.2003032111.gz</CODE>. The ppp interface being
+monitored goes down, killing the tcpdump session.  When the interface resumes
+operation at 11:23:01, the interface control script includes a line to restart
+<CODE>sensor_driver.pl</CODE>. IDABench will rename the original file
+<CODE>tcp.2003032111.2301.gz</CODE> and a new <CODE>tcp.2003032111.gz</CODE> is initialized.
+</BLOCKQUOTE>
+<P>
+<P>Although not required, if you have either tcpslice or mergecap installed on
+your sensor, IDABench will enable merging of those partial hourly dumpfiles, or
+"logbits". Of the two, mergecap is preferred, as it natively deals with
+compressed data, and is more fault tolerant. Without them, the logbits will
+remain on the sensor until removed manually, or by the analyzer's <CODE>cleanup.pl</CODE>. 
+<P>There are two times that the logbits will be considered for merging:
+<OL>
+<LI>When <CODE>sensor_driver.pl</CODE> is executed with the "stop" parameter</LI>
+<LI>When <CODE>sensor_driver.pl</CODE> is executed with the "start" or "restart" parameter 
+(they are synonymous) AND the current hour is DIFFERENT from the hour when the 
+logbits were created. This condition exists at the top of every hour when cron 
+restarts the sensor.</LI>
+</OL>
+<P>
+<P>An added benefit of this behavior is the ability to add additional "sites" on
+the fly. By adding an additional "SITE_x" section to the <CODE>sensor.conf</CODE> and 
+running <CODE>sensor_driver.pl restart ALL</CODE>, partial dumpfiles are retained, the new
+site is added to the logging directory and the sniffers are (re)started.
+<P>
+<H2><A NAME="rawretrieval"></A> <A NAME="ss3.3">3.3 Raw data retrieval</A>
+</H2>
+
+<P>The sensor's hourly dumpfiles don't do us much good unless we can open them up
+and start scrutinizing their contents. Instead of placing that load on
+the sensor itself (possibly leading to packet loss, if analysis loads are
+high), the IDABench analyzer reaches out to each sensor and retrieves the
+dumpfiles.
+<P>Secure Shell (SSH or OpenSSH) is used to authenticate the analyzer as well as
+to encrypt the packet data in transit.  The analyzer asks the sensor for the
+date/time group of the last dumpfile, then uses <CODE>scp(1)</CODE> to retrieve it. No
+passwords are used in that exchange, as the analyzer is configured with a
+special user account who's public encryption key is placed on each sensor.
+<P>
+<H2><A NAME="analysisconcepts"></A> <A NAME="ss3.4">3.4 Analysis</A>
+</H2>
+
+<P>The IDABench analyzer is a framework for libpcap-based analysis tools to be
+accessed via an easy-to-use web interface. The two main components are
+<CODE>fetchem.pl</CODE> and <CODE>search.cgi</CODE>. These two are run by <CODE>crond(8)</CODE> or
+<CODE>httpd(8)</CODE>, respectively, and use plugins to interface with analysis tools
+such as tcpdump.  The results are formatted by the plugins and presented to the
+analyst in html pages containing text, graphics, or links to resultant binary
+content.
+<P><CODE>fetchem.pl</CODE> is responsible for retrieving the hourly dumpfiles from the
+sensor(s) and making pretty things happen on an hourly basis. It is run as the
+IDABENCH_USER according to that user's own crontab. Once the file has been
+secure copied to the analyzer, <CODE>fetchem.pl</CODE> runs the necessary plugin 
+binaries. These are determined based on individual site configuration. The
+dumpfile is decompressed into RAM in fixed-size blocks and fed to the
+plugin-driven analysis programs, whose results are arranged in the hourly
+output html file, sorted by plugin name.
+<P>
+<BLOCKQUOTE>
+<I>Hint: if you create an array called "pluglist" in a site.ph file, it will
+override the sorting behavior, giving you more control over the appearance of
+your webpages.</I>
+</BLOCKQUOTE>
+<P>Hourly plugins are described later in this article.
+<P>
+<P><CODE>search.cgi</CODE> is the primary ad-hoc query interface for IDABench, and builds
+web forms based on search plugins present. The more plugins you have installed,
+the more tabs will appear across the top of the search webpage. 
+<P>
+<P>When the search form is submitted, the appropriate plugin is called to produce
+a commandline that will execute its associated utility. That commandline is
+passed as a parameter to the script <CODE>pat_search.pl</CODE>, which is responsible
+for accessing the archived packet logs and feeding them to the analysis
+program.
+<P>
+<P>Output from the selected analysis utility is then prepared for either html
+display or further post processing (i.e. graphic generation), by an output
+subroutine in the plugin.
+<P>
+<H2><A NAME="filesmaint"></A> <A NAME="ss3.5">3.5 Files maintenance and cleanup</A>
+</H2>
+
+<P>I'm as much of a pack rat as the next geek, but storage resources are finite,
+and there's a time to clean house. IDABench will take care of some of this
+housekeeping for you, but other tasks will need manual attention.
+<P>
+<H3><A NAME="sensormaint"></A> Sensor files</H3>
+
+<P>The sensors have no mechanism for deletion of files, regardless of age. The
+task of sensor cleanup is left to the analyzer, via <CODE>ssh</CODE>. This protects
+against accidental data loss in case of analyzer network failure.
+The analyzer script responsible for deleting old files on the sensor(s) is
+aptly named <CODE>cleanup.pl</CODE>. If your sensors are rather littered with old files
+for one reason or another, running <CODE>cleanup.pl -h</CODE> as the IDABENCH_USER
+will provide you with the syntax necessary to manually cleanup files
+individually or those created prior to a certain date.
+<P>
+<P>
+<H3><A NAME="analyzermaint"></A> Analyzer files</H3>
+
+<H3>packet logs</H3>
+
+<P>Analyzer storage has always been a challenge with raw packet logger systems
+like IDABench. As storage resources are limited, a decision must be made as to
+when data can be deleted, reduced, or relocated to ensure the continued health
+and reliability of the system.
+<P><CODE>editcap</CODE>, part of the <CODE>ethereal</CODE> distribution, is a utility that makes 
+changes to existing libpcap dumpfiles. One of the edit options available is
+snaplen. By specifying a new snaplen of 38 and iterating through all files that
+have surpassed a certain age, all ip header information and 8 bytes of the next
+layer header are preserved, while reducing the size of archived files
+significantly. <CODE>editcap</CODE> can operate directly on compressed files, but must
+output to a new filename or stdout, thus a bit of tempfile tapdancing needs to 
+take place in order to automate this process.
+<P>
+<P>
+<H3>temporary files</H3>
+
+<P>IDABench generally cleans up after itself during hourly and search analyses,
+but certain things do remain for a period of time. Image files and binary
+results of ad-hoc searches are kept in the IDABENCH_WEB_SPOOL_LOCAL
+directory until they age past the CLEAN_TIME as set in <CODE>site.ph</CODE>. The
+search scripts are responsible for cleaning up after themselves, including the
+spool directory.  If there are old files in the spool directory, it is most
+likely because no searches producing graphical or binary output have been run
+recently.
+<P>
+<HR>
+<A HREF="IDABench-1.0-4.html">Next</A>
+<A HREF="IDABench-1.0-2.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc3">Contents</A>
+</BODY>
+</HTML>

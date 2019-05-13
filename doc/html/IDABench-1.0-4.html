@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Requirements</TITLE>
+ <LINK HREF="IDABench-1.0-5.html" REL=next>
+ <LINK HREF="IDABench-1.0-3.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc4" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-5.html">Next</A>
+<A HREF="IDABench-1.0-3.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc4">Contents</A>
+<HR>
+<H2><A NAME="Requirements"></A> <A NAME="s4">4. Requirements</A></H2>
+
+<H2><A NAME="hardwarereq"></A> <A NAME="ss4.1">4.1 Hardware</A>
+</H2>
+
+<P>
+<P>
+<H3><A NAME="sensorhardware"></A> Sensor</H3>
+
+<P>IDABench can survive quite nicely on fairly inexpensive equipment. There are
+plenty of installations using boneyard salvaged boxes as sensor platforms. I was recently at a site
+where 12 outdated, donated, desktop machines were collecting nearly 1.5GB per hour with
+negligible packet loss. Storage of all that was a different matter! Consider,
+at a minimum:
+<PRE>
+Pentium-class or SPARC-2 processor
+64MB RAM
+2 fast drives > 10GB, mirrored
+2 server-grade network interfaces
+</PRE>
+<P>
+<P>I personally recommend inexpensive server-class systems for sensors. Places
+that you shouldn't skimp are network interfaces and reliable storage. The
+additional expense of a pair of mirrored drives is a drop in the bucket
+when the you consider the alternative.  :-(
+<P>
+<P>Sensor system (one of ours here at ISTS):
+<P>
+<UL>
+<LI> IBM E-server x300 1U-rackmount</LI>
+<LI> PIII-1GHz</LI>
+<LI> 256MB PC100 RAM</LI>
+<LI> (2) IBM Deskstar 82GB 7200RPM ATA/100 in software RAID-1 (overkill!)</LI>
+<LI> (2) Intel 82557 Ether Express Pro 100 interfaces (on-board)</LI>
+</UL>
+<P>
+<P>
+<P>
+<H3><A NAME="analyzerhardware"></A> Analyzer</H3>
+
+<P>The IDABench analyzer is a workhorse. Plain and simple, the more hardware you
+can throw at it, the better its performance will be. The minimum depends on
+the volume of traffic you are monitoring.
+<P>
+<P>Monitoring two T-1 served networks at an average of 40% utilization and three sensors, we
+achieve acceptable performance using the following inexpensive analyzer setup:
+<UL>
+<LI> Single Pentium III 1.5GHz processor</LI>
+<LI> 256MB RDRAM</LI>
+<LI> 256MB linux swap partition</LI>
+<LI> 73GB IDE for packet data and website storage</LI>
+</UL>
+<P>
+<P>Using a snaplen of 128 on the two main sensor sites and a snaplen of 1514 on a low
+traffic third, we collect between 500MB and 1GB per day. Depending on the
+capacity and utilization of the network segments your sensors are monitoring,
+you could see considerably more.
+<P>
+<P>On the other hand, my home network is being served very nicely by a Cyrix P120+
+firewall/proxy/sensor system with 64MB of RAM and a very meager disk. The
+analyzer is my nice fat Athlon desktop workstation and I can tear through a
+month's worth of data in the time it takes to brew a pot of coffee. YMMV.
+<P>
+<H2><A NAME="ossoftware"></A> <A NAME="ss4.2">4.2 Operating system and software</A>
+</H2>
+
+<H3><A NAME="sensorsoftware"></A> Sensor</H3>
+
+<P>There are a number of dependencies that need to be fulfilled to achieve a
+working sensor; most modern Linux distributions, and many other Unix-like
+operating systems, ship with the necessary components. These are:
+<P>
+<PRE>
+Name                    Available from
+----                    --------------
+tcpdump                 http://www.tcpdump.org, http://ee.lbl.gov
+Perl 5x                 http://www.perl.com, http://www.cpan.org
+bash                    http://www.gnu.org/software/bash
+gzip                    http://www.gnu.org/software/gzip
+sshd                    http://www.openssh.org (openssh), www.ssh.com (SSH2)
+</PRE>
+<P>sshd note:
+Although the commercial SSH product is compatible, we recommend using the
+open-source openssh daemon. This will avoid any potential license issues and
+requires no public-key conversions before exchanging keys between analyzer and
+sensor(s).
+<P>
+<P>Optional binaries that are handy if the sensor periodically restarts. See 
+PARTIAL CAPTURES, below.
+<P>
+<PRE>
+mergecap (bundled with ethereal)        http://www.ethereal.com
+tcpslice                http://www.tcpdump.org/related.html, http://ee.lbl.gov
+</PRE>
+<P>
+<H3><A NAME="analyzersoftware"></A> Analyzer</H3>
+
+<P>Any Unix-like operating system is acceptable, as long as you meet the software
+requirements listed below. Most modern Linux distributions come with all the
+necessary pieces, many of which are installed by default. The analyzer has been
+installed and tested on Redhat 7.2/8/9 with minimal massaging. If any of these
+requirements are not met, the install.analyzer script will let you know.
+<P>
+<P>Necessary things:
+<UL>
+<LI> Perl 5.6.1 or newer</LI>
+<LI> Perl modules: Getopt::Long, POSIX, Time::Local, Socket, IO::Handle, File::Basename, Cwd, DB_File, Digest::MD5, CGI, File::Temp</LI>
+<LI> Apache httpd with mod-cgi</LI>
+<LI> Secure Shell - openssh (preferred) or SSH2</LI>
+<LI> crond </LI>
+<LI> gzip/gunzip</LI>
+</UL>
+<P>
+<P>Things that will make the IDABench analyzer (and you) really happy are:
+<P>
+<P>
+<UL>
+<LI>tcpdump - http://www.tcpdump.org 
+<P>Tcpdump is historically the bedrock upon which network analysis is
+built, and with good reason; tcpdump is one of the most flexible packet
+analysis tools available. This release of IDABench requires tcpdump 
+for the sensor, but not so for the analyzer. Without it, the tcpdump
+plugin will not return any output, potentially limiting your 
+capabilities, but hey, it's your data.
+<P>We recommend a version other than Redhat's, but if you insist, it will
+work, as long as all of your sensors and analyzers talk the same, or a
+compatible version. Even though the output format is different, the
+tcpdump.org CVS development versions work too, so don't be afraid to
+try them out. With the "Very verbose" option in the search window
+selected, your analysts get to ooh and aah at all the neato protocol
+breakouts.
+<P>
+</LI>
+<LI>ngrep - http://www.packetfactory.net <P> Jordan Ritter's "network grep"
+allows you to specify regular expressions in both ascii and hexadecimal to be
+matched against in the packet logs. This can be useful in identifying certain
+content-specific attacks, as well as in displaying content in your output.
+<P>
+<P><I>Here's a trick: Configure your routers to send syslog output to a host
+that isn't running a syslog daemon. Configure your sensor with a separate site
+called "access-logs". Use a filter on the sensor like: "udp and port 514 and
+src &lt;router&gt; and dst &lt;dummy&gt;" with a fat snaplen.  Now on the
+analyzer, create a corresponding site like: &lt;IDABench
+root&gt;/etc/sites/access-logs with an ngrep filter that will match on the
+IPACCESSLOG and/or other strings, perhaps on certain list numbers.  Now, you
+have the ability to easily correlate router/PIX events in the IDABench console,
+including graphical representation (see gnuplot, below)</I>
+<P>
+</LI>
+<LI>ethereal - http://www.ethereal.com
+<P>Ethereal comes with tons of really neat goodies
+that IDABench puts to use, if installed. Mergecap is, by far, far superior over
+tcpslice for the merging of dumpfiles, and both the sensor(s) and analyzer
+benefit from this. The sensor component can resume collecting packets if
+stopped and restarted, then reassemble the partial logfiles using mergecap (or
+tcpslice) before they are "fetched" by the analyzer.  On the analyzer, we can
+also use mergecap for sweet returns. If an analyst wishes to have direct access
+to the binary dumpfiles to dig a little deeper that she can in the web
+interface, it is no longer necessary for her to have a shell account on the
+analyzer system. By selecting "binary" output, the results from the many hours
+of data that her query spans are merged and presented for download.  Tethereal,
+or "text ethereal", is made available in the search tabs if the plugin is
+present. NOTE: tethereal applies quite a lot of scrutiny to every packet before
+deciding to display or discard it. This is a slow search method! The plugin is
+very rough at this time; we may write a new one that offers pre-filtering with
+tcpdump/snort/etc. before handing that refined dataset to tethereal. A fair
+solution, for now, is to use another tool to search, then open the binary
+results of that search locally using ethereal.
+<P>
+<P>As always, it is recommended that you compile mergecap from validated source
+code, however, if you insist on using Redhat's ethereal rpm, be sure it is at
+least version 0.9.11, or you'll find that mergecap isn't included.
+<P>
+</LI>
+<LI>gnuplot - http://www.gnuplot.info
+<P>View the results of your queries graphically. Need I say more?
+<P>
+</LI>
+<LI>tcpslice - http://www.tcpdump.org/related 
+<P>See the discussion about mergecap in the ethereal section, above. Tcpslice will
+do the job of merging partial dumpfiles, albeit less elegantly, if you don't
+like mergecap. We highly recommend that you use a tcpslice that is linked
+against the same version of libpcap that the sensor uses.  If file merging is
+failing, please upgrade your tcpslice before posting to the mailing list. 
+<P>
+</LI>
+</UL>
+<P>
+<HR>
+<A HREF="IDABench-1.0-5.html">Next</A>
+<A HREF="IDABench-1.0-3.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc4">Contents</A>
+</BODY>
+</HTML>

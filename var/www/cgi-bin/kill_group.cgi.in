@@ -1,0 +1,53 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# kill_group.cgi             - idabench Release 1.0
+#
+use CGI qw/:standard/;
+use CGI::Carp qw(fatalsToBrowser);
+#
+$group_pid = getpgrp(0);
+#
+print header,
+start_html(-title=>'Intrusion Detection group process killer',
+           -bgcolor=>"#D2FFD2",
+          );
+if (!param) {
+   print h1({-align=>CENTER}, "Kill Group PID"),
+   start_form(-name=>'killer',
+              -target=>'killer', 
+              -method=>'GET',
+#             -onSubmit=>'alert("Search Process Killed")'
+             ),
+   p(),
+   "Input Group PID: ",
+   textfield(-name=>'group_pid',
+             -size=>10),
+   p(),
+   submit,
+   end_form;
+} else {
+#  select STDOUT; $| = 1;              # make unbuffered
+   $group_pid = param('group_pid');
+   if (($group_pid =~ tr/0-9.-//cd)  or ($group_pid eq "1")) {
+      print h1("Invalid PID.");
+      print end_html;
+      exit(1);
+   }
+   kill(-15, $group_pid);
+   print
+   start_form(-name=>'killer'
+              -target=>'killer'),
+   h3("Search Process Killed"),
+   p("Use the \"Back\" button in the search window to return to your previous search"),
+   button(-name=>'OK', -onClick=>'window.close()'),
+   end_form;
+}
+print end_html;

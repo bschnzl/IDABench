@@ -1,0 +1,34 @@
+# funnylooking-icmp
+# A simple tcpdump filter to watch for anomalous icmp messages
+
+var MYNET = 10.0.0.0/23
+
+icmp and not src net $MYNET and
+(
+  (ip[6:1] & 0x20 != 0)         # fragments
+  or
+  (
+    (icmp[0] = 5)               # redirects that have a ttl indicating 
+                                # remote origins
+    and 
+    !(ip[8] = 32 or ip[8] = 64 or ip[8] = 128 or ip[8] = 255)
+  )
+  or
+  ( 
+                                # Data present in certain reserved fields
+    (icmp[0] = 3 or icmp[0] = 11)
+    and 
+    (icmp[4:4] != 0)
+  )
+  or
+  (
+    (icmp[0] = 0 or icmp[0] = 8)
+    and
+    (icmp[1] != 0)
+  )
+  or
+                                # Anything other than redirs, unreachables,
+                                # time exceededs & echos
+  !(icmp[0] = 0 or icmp[0] = 3 or icmp[0] = 11 or icmp[0] = 8 or icmp[0] = 5)
+)
+

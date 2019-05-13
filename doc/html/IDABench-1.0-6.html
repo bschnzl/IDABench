@@ -1,0 +1,324 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Analyzer Installation</TITLE>
+ <LINK HREF="IDABench-1.0-7.html" REL=next>
+ <LINK HREF="IDABench-1.0-5.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc6" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-7.html">Next</A>
+<A HREF="IDABench-1.0-5.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc6">Contents</A>
+<HR>
+<H2><A NAME="analyzerinstall"></A> <A NAME="s6">6. Analyzer Installation</A></H2>
+
+<P>Installation is designed to be as painless as possible, with minimal
+configuration necessary to put up an analyzer that talks to a single sensor.
+Adding additional sensor "sites" can be done either before or after
+installation with little additional configuration neccessary.
+<P>
+<P>The "install_analyzer" script and etc/idabench.conf provided contain sensible
+defaults for most settings, and, unless overridden by idabench.conf settings,
+the installer will attempt to resolve dependencies when run.
+<P>
+<H2><A NAME="analyzerquick"></A> <A NAME="ss6.1">6.1 Quick install</A>
+</H2>
+
+<P>Here's the down and dirty for those who need to get an analyzer up fast. If you
+wish to understand a little deeper, or just think it might be useful knowing 
+what is on your machine (what a concept), jump down to The grubby details. 
+<P>
+<OL>
+<LI>Extract the tarball in /tmp
+</LI>
+<LI>cd IDABench-1.8
+</LI>
+<LI>Optionally, edit etc/idabench.conf
+</LI>
+<LI>Run install_analyzer. You will need to be root for this step. Be sure to
+read the feedback from the installer. It contains information about failed
+dependencies and additional steps that may be neccessary or optional, depending
+on your system or personal preferences.
+</LI>
+<LI>Append /home/shaias/.ssh/id_dsa.pub to sensor user's
+.ssh/authorized_keys.  Don't put this in root's .ssh! That is a hole big enough
+to drive a truck through! All ssh and scp is done as non-priv users. See the
+sensor docs. This is done for localhost by the installer, in case you are
+putting up a single-host sensor/analyzer, .
+</LI>
+<LI>Append the sensor's ssh host key to the analyzer IDABENCH_USER's
+.ssh/known_hosts file. One easy way to do this is to become the IDABENCH_USER,
+then manually ssh to the sensor as the SENSOR_USER. This should be done across
+a private or trusted network, then validated manually. IF THIS IS DONE ACROSS
+AN INSECURE NETWORK, A MAN-IN-THE-MIDDLE CAN INTERCEPT AND HIJACK THIS KEY
+EXCHANGE.  
+</LI>
+<LI>Edit etc/sites/&lt;yoursite>/site.ph if necessary. Pay attention to the
+$SENSOR, $SENSOR_USER, and $SENSOR_DIR settings.
+</LI>
+<LI>Edit the variables section in
+etc/sites/&lt;yoursite>/tcpdump/generic.filter, using hostnames or ip addresses
+specific to your site.
+</LI>
+<LI>Become the IDABENCH_USER and manually run fetchem.pl with the -debug
+option, then have a look at the file &lt;IDABench root&gt;/var/log/fetchem.log
+for any errors.
+</LI>
+<LI>Point a browser at http://localhost/idabench/
+</LI>
+<LI>Sip champagne.
+</LI>
+</OL>
+<P>
+<P>Now, in order to get something more specific to your site(s) from the analyzer,
+you will need to go into the subdirectories in etc/sites/&lt;yoursite>/ and edit
+the filter files there. See tcpdump-filters, ngrep-filters and findscan-filters
+in docs/ for instructions.
+<P>
+<P>If you can't seem to get any output, try the -debug option when running fetchem
+as the IDABENCH_USER.
+<P>
+<H2><A NAME="analyzerinstdetails"></A> <A NAME="ss6.2">6.2 The grubby details</A>
+</H2>
+
+<P>The main configuration file, idabench.conf, contains global configuration
+settings that affect all sites, scripts, and resultant web pages. It is read
+during installation, to determine the desired installation location as well as
+the location of preferred versions of dependencies. As it is heavily commented,
+please read through it carefully and adjust as necessary. The lower section,
+where paths are relative to those defined above, should be left alone for the
+vast majority of installations.
+<P>
+<P>Fetchem.pl is run on an hourly basis, as scheduled in the IDABENCH_USER's
+crontab. It will read idabench.conf and determine the locations of the site
+configurations. After parsing the various etc/&lt;sitename>/site.ph files, fetchem
+uses ssh and scp to retrieve the most recent dumpfile from each sensor. This
+ssh, as well as all of fetchem.pl's other actions, is run as the IDABENCH_USER,
+thus your sensors must trust the IDABENCH_USER's ssh public key for
+authentication. See the 
+<A HREF="#sshkeys">Secure shell keys</A> section, below, for instructions.
+<P>
+<P>The sites' configuration directories are then examined for plugin filters. For
+each plugin filter located, a child process is forked that will pass packet data
+to the appropriate libpcap tool for analysis. Once all of the children are
+alive and hungry, the hourly dumpfile is uncompressed and passed to them. Output 
+from the analysis tools is placed in a temporary location, then formatted for 
+display in a plugin-unique section in the hourly report for that site.
+<P>
+<P>If the target directories for a new site do not yet exist, fetchem.pl will create
+them for you on the fly. By default, the location of all site specific
+directories is the IDABENCH_RAW_DATA_PATH as defined in etc/idabench.conf.
+<P>
+<H3>Installation</H3>
+
+<P>We strongly advise that you use the installation script, install.analyzer, as
+there are a number of files that it edits when run. If you must manually
+install, you will need to perform these edits yourself, or the analyzer will
+not run. Those files can be identified by the ".in" filename extension in the 
+installation package.
+<P>
+<P>The installation script, install_analyzer, will create all necessary
+directories, user accounts, etc., but to do so, it needs to read configuration
+details from the file &lt;IDABench root&gt;/etc/idabench.conf. As that file is
+well commented, we'll save a few electrons and not detail the various settings
+here.  Make any changes necessary, paying attention to the first 10 items.
+Below them, all other settings are relative to those first 10 and should
+generally be left as they are.
+<P>
+<P>The installer first performs a few inventories to ensure that the package is
+complete, and that the necessary dependencies are present. If a failed
+dependency check is critical, the installer will exit, alerting you of the
+problem. If it is non-critical, the installer will include the warning in the
+post-install summary. Similarly, if existing configuration files are found in
+the destination directories, they will NOT be overwritten, and warnings will be
+issued in the summary.
+<P>
+<P>A user account, the value assigned to IDABENCH_USER in idabench.conf, will be
+created. This account is responsible for all of the hourly retrieval and
+analysis of packet data from the sensors. If the account exists, a summary
+warning will be issued after installation. A second account is necessary,
+although most likely already exists: the Apache web daemon user. This account
+is responsible for all ad-hoc searches and presentation of the results, as well
+as the hourly web pages, to the analysts. This account should be specified in
+the webserver's configuration file, httpd.conf. This file is NOT a part of the
+IDABench distribution, and does not need to be edited manually, except to
+enhance security. Webserver configuration is beyond the scope of this cruft.
+Please see http://httpd.apache.org/security_report.html for current and past
+security issues with the Apache httpd.
+<P>
+<P>Unless it already exists, the installer will create a public/private openssh
+DSA key pair for the IDABENCH_USER for retrieving information and files from the
+sensor(s), as well as executing cleanup.pl. To facilitate single-host installs,
+it will then copy that public key to the IDABENCH_USER/.ssh/authorized_keys file
+and set appropriate permissions.
+<P>
+<P>The following directories, as defined in idabench.conf, are then created (and
+permissions set) in preparaion of the file copy:
+<P>
+<BLOCKQUOTE>
+<PRE>
+    $IDABENCH_BIN_PATH,
+    $IDABENCH_SITE_PATH,
+    $IDABENCH_SITE_PATH/$IDABENCH_SITE_DEFAULT,
+    $IDABENCH_SCRATCH_PATH,
+    $IDABENCH_LOG_PATH,
+    $IDABENCH_LIB_PLUGIN_PATH,
+    $IDABENCH_CGI_PATH,
+    $IDABENCH_RAW_DATA_PATH,
+    $IDABENCH_WEB_PAGES_PATH,
+    $IDABENCH_WEB_PAGES_PATH/$IDABENCH_SITE_DEFAULT,
+    $IDABENCH_WEB_SPOOL_LOCAL
+</PRE>
+</BLOCKQUOTE>
+<P>
+<P>Now that the destinations are ready, the files are modified from their original
+".in" format, and written into their new homes. The following edits are
+performed:
+<P>
+<UL>
+<LI>Web cgi files: The strings "IDABENCH_RELCGI_PATH" and
+"IDABENCH_RELHTTP_PATH" are replaced by their legitimate values from
+idabench.conf
+</LI>
+<LI>Many files: The value of "$IDABENCH_PATH" is added early in many files so
+that they can find the configuration information at runtime.
+</LI>
+<LI>lib/plugins/plugins.ph: Once the path to all search plugin binaries is
+determined, that information is added here to help speed things up a bit.
+</LI>
+</UL>
+<P>
+<P>The webserver configuration file, httpd.conf, will also be edited. After
+backing up the original file, the necessary configuration sections will be
+appended to the existing configuration file, unless a IDABench section already
+exists there. The webserver is then restarted and chkconfig is run to ensure
+webserver restart at next system boot.
+<P>
+<P>Finally, any errors are summarized and a list of final warnings and additional
+steps are presented as the installer exits.
+<P>
+<P>
+<H3><A NAME="sshkeys"></A> Secure Shell keys</H3>
+
+<P>The IDABENCH_USER account will be copying several files from the sensor(s) to
+the analyzer. So that this can be accomplished by the <CODE>crond(8)</CODE>, with no
+user interaction, we need another form of authentication.
+<P>
+<P>Secure shell, whether OpenSSH or SSH2, can use a pre-distributed public
+encryption key for that authentication. <CODE>install_analyzer</CODE> generates a
+public/private key pair during installation for that user, if it doesn't
+already exist, to be used for that authentication method. Please be sure your
+sensor's <CODE>sshd(8)</CODE> is configured to allow public-key authentication. By default,
+most are. What remains is two steps: 
+<P>
+<OL>
+<LI>securely making the sensor(s) aware of the user's public key:
+
+<P>If both analyzer and sensor are using openssh, the simple way of doing this is
+merely using <CODE>scp(1)</CODE> to copy the the public key to the sensor, and renaming
+it (or appending it to the existing)
+<CODE>/home/&lt;SENSOR_USER>/.ssh/authorized_keys</CODE>.
+<P>
+<P>If the sensors are using a commercial version of Secure Shell, you will first
+need to export <CODE>id_dsa.pub</CODE> with the following command:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+ssh-keygen -ef /home/$IDABENCH_USER/.ssh/id_dsa.pub > analyzer.dsa_pubkey
+</PRE>
+</CODE></BLOCKQUOTE>
+
+and then copy that file to the sensor's <CODE>/home/&lt;SENSOR_USER/.ssh2</CODE> directory
+and append the following line to the sensor's <CODE>/home/&lt;SENSOR_USER/.ssh2/authorization</CODE> file:
+<BLOCKQUOTE><CODE>
+<PRE>
+key analyzer.dsa_pubkey
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>Regardless of method used, all .ssh(2) files should have a permission mode of
+0600, or -rw----------.
+<P>
+</LI>
+<LI>making the analyzer aware of the sensor(s) public <I>host</I> key(s):
+
+<P>The sensor's host key, <CODE>/etc/ssh/ssh_host_key.pub</CODE>, is used to identify
+the host (not user) when an ssh session is initiated. This file will be added
+to the IDABENCH_USER's <CODE>.ssh/known_hosts</CODE> file the first time ssh is
+run as that user. 
+<P>
+<P>Once the user public key has been exchanged (above), you can then ssh to the
+sensor to pass the host key. As root, <CODE>su(1)</CODE> to the IDABENCH_USER and
+manually <CODE>ssh(1)</CODE> to the sensor(s). If the <CODE>SENSOR_USER</CODE>'s name is
+different from the IDABENCH_USER, you will need to use the -l commandline
+switch when you ssh. You may be prompted to accept the host key before
+authentication takes place.
+<P>
+<P>Another, possibly more secure, option is to manually add a
+line to known_hosts that contains the sensor hostname and/or ip address
+followed by the contents of the sensor's public host key file.  See the
+<CODE>sshd(8)</CODE> man pages, specifically the <CODE>SSH_KNOWN_HOSTS FILE FORMAT</CODE>
+section, for a good discussion of this file.
+</LI>
+</OL>
+<P>
+<P>
+<BLOCKQUOTE>
+<I>Both of these operations should be carried out with a bit of threat
+awareness.  If a public key exchange is intercepted by a "man in the middle",
+substitute keys can be offered by the attacker, subverting your attempts at
+secure communications. Isolated installation networks, of course, are best. If
+this isn't possible because of physical distances, manual confirmation of key
+fingerprints is advised after key exchanges. To help defend against future
+attempts, the ssh_config option <I>StrictHostKeyChecking</I> should be set on the
+analyzer.</I>
+</BLOCKQUOTE>
+<P>
+<P>If you are playing mix'n'match with ssh versions and can't authenticate as the
+SENSOR_USER to the sensor site(s), you may want to use Bill Stearns' wonderful
+ssh-keyinstall script: http://www.stearns.org/ssh-keyinstall/
+<P>
+<H3>fetchem.pl</H3>
+
+<P>If all has gone smoothly thus far, the next step should be the simplest and
+most satisfying. As root, <CODE>su(1)</CODE> to the IDABENCH_USER account and manually
+run <CODE>IDABENCH_BIN_PATH/fetchem.pl -debug -l site0</CODE> (or whatever
+your sitename happens to be). If there is a current packet capture file on the
+sensor, fetchem.pl should run and exit silently. If there are problems,
+debugging output should be in IDABENCH_LOG_PATH/fetchem.log.
+<P>
+<P>There should now be two new files on the analyzer, the gzipped raw data file
+ANALYZER_DIR/MonthDD/tcp.yyymmddhh.gz, and an hourly html report, 
+IDABENCH_WEB_PAGES_PATH/site/MonthDD/yyymmddhh.html.
+<P>
+<P>The following example should make this a little clearer:
+<P>It is currently 11:15, 25 July 2003. Using default settings for my site
+configuration, I run:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+sh-2.05b# su - idabench
+
+[idabench@anlzr idabench]$ /usr/local/idabench/bin/fetchem.pl -debug -l site0
+
+[idabench@anlzr idabench]$ ls -l /var/www/idabench/data/site0/Jul25/
+total 31248
+-r--r--r--    1 idabench idabench 31960557 Jul  2 11:16 tcp.2003072510.gz
+
+[idabench@anlzr idabench]$ ls -l /var/www/idabench/data/hourly_results/site0/Jul25/
+total 48
+-rw-rw-r--    1 idabench idabench   47761 Jul  2 11:45 2003072510.html
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>From this point forward, entries in the IDABENCH_USER's <CODE>crontab</CODE> should continue
+the process.
+<P>
+<HR>
+<A HREF="IDABench-1.0-7.html">Next</A>
+<A HREF="IDABench-1.0-5.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc6">Contents</A>
+</BODY>
+</HTML>

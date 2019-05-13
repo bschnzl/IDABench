@@ -1,0 +1,5 @@
+See IDABench-1.0.html, in the ./doc/html directory for installation &
+configuration information. 
+
+For sensor only, INSTALL.sensor is included in sensor-1.0.tar.gz, which
+should be extracted on the sensor system(s).

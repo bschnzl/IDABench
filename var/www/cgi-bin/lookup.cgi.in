@@ -1,0 +1,79 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# lookup.cgi        - idabench-v1.0
+#
+#
+use CGI qw/:standard *table/;
+use CGI::Carp qw(fatalsToBrowser);
+#
+our ($named_host, @cmd, $debug, $type, $search_field);
+our $hostbin = "/usr/bin/host";
+print header,
+start_html(-title=>'DNS Lookup Name/Address Information',
+           -background=>"IDABENCH_RELHTTP_PATH/images/binary.png",
+          );
+%labels = ('A'=>'Default (A)',
+           'SOA'=>'Start of Authority (SOA)',
+           'NS'=>'Name Server (NS)',
+           'AXFR'=>'Zone Transfer (AXFR)',
+           'MX'=>'Mail Server (MX)');
+print start_table({-border=>'0', -width=>'100%', -bgcolor=>'#dddddd'});
+if (!param) {
+   print Tr(td({-align=>'center',-colspan=>'2'},
+   (h3("IDABench nslookup query")))),
+   Tr(td({-colspan=>'2'},
+   start_form(-target=>'_self'),
+   textfield(-name=>'search_field',
+             -size=>45),
+   " Hostname/IP Address")),
+   Tr(td(
+   popup_menu(-name=>'type',
+              -values=>['A','SOA','NS','AXFR','MX'],
+              -default=>'A',
+              -labels=>\%labels,
+   "Query type")),
+   td(checkbox(-name=>'debug',
+            -value=>'1',
+            -label=>'Verbose output?'))),
+            
+   Tr(td(submit),
+   end_form),
+   ;
+} else {
+   select STDOUT; $| = 1;              # make unbuffered
+   $search_field = param('search_field');
+   $type = param('type');
+       if ($type =~ /^(A|SOA|NS|AXFR|MX)$/){
+           $type = $1;
+       } else { die "Invalid type\n";
+       }
+   $debug = 1 if (param('debug'));
+   if ((length($search_field) > 45) or ($search_field =~ tr/A-Za-z0-9\._-//cd)) {
+      print Tr(td(h2("Invalid search address:$search_field"))),
+      end_table,
+      end_html;
+      exit(1);
+   }
+   print Tr(td({-align=>'left',-colspan=>'2'},h2("Your answers: "))),
+   Tr(td(" Seeking Info on: ", $search_field));
+   print "<tr><td><PRE>";
+   @cmd = ("$hostbin");
+   push @cmd, "-d" if $debug;
+   push @cmd, "-t $type" if $type;
+   push @cmd, "$search_field";
+   push @cmd, "$named_host" if "$named_host";
+   print "executing @cmd\n";
+   system("@cmd") == 0
+       or print "@cmd failed:$?\n";
+   print "</PRE></td></tr>";
+}
+print end_table,
+end_html;

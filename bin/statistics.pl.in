@@ -1,0 +1,52 @@
+#! /usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+#  statistics.pl - idabench Version 1.0
+#
+#  Script to read a raw tcpdump hourly file, look at the packets,
+#  and produce some statistics about the traffic seen in that file.
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local our $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+#
+require "$IDABENCH_LIB_PATH/statistics.ph";
+#
+# First calling parameter is raw gzipped file to read.
+# Second is name of file into which to put the statistics text.
+#
+$rawfile = shift;
+die("No gzipped tcpdump file specified, aborting.") if (! -e $rawfile);
+$outfile = shift;
+#
+init_state();
+#
+# Read the Raw file and collect the statistics.
+#
+&read_rawfile($rawfile);
+#
+# Print the results.
+#
+&printem($outfile, $rawfile) if ($outfile);
+#
+#  End of statistics.pl

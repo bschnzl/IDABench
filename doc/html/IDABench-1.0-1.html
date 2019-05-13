@@ -1,0 +1,68 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Introduction</TITLE>
+ <LINK HREF="IDABench-1.0-2.html" REL=next>
+
+ <LINK HREF="IDABench-1.0.html#toc1" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-2.html">Next</A>
+Previous
+<A HREF="IDABench-1.0.html#toc1">Contents</A>
+<HR>
+<H2><A NAME="intro"></A> <A NAME="s1">1. Introduction</A></H2>
+
+<P>Welcome!
+<P>
+<H2><A NAME="overview"></A> <A NAME="ss1.1">1.1 Overview</A>
+</H2>
+
+<P>IDABench is a pluggable framework for intrusion analysis. Network traffic is
+captured on one or more sensor systems, then securely copied to a central
+analyzer for detailed scrutiny on an hourly and ad-hoc basis. Libpcap-based
+tools, such as tcpdump and ngrep, are called to examine the captured network
+traffic against sets of predefined filters. As events of interest are
+identified, either within IDABench or otherwise, historical packet records can
+be queried for details of previously unreported activity.  Unlike most
+rule-based intrusion detection systems, the lack of a matching rule (filter)
+only affects the hourly report; the original network traffic crossing a
+sensor's field of view is stored for later review.
+<P>
+<P>IDABench is NOT intended to be an intrusion detection system, although it can
+be used as such. One of the primary design goals was to provide intrusion
+analysts easy access to the tools and utilities that they already are familiar
+with through a convenient web interface. As access to other libpcap tools is
+desired, lightweight plugins can be written and installed without modifying
+existing IDABench code. The only limitation is that the new tools must be able
+to read packets that were captured using tcpdump, or some other libpcap
+sniffer.
+<P>
+<H2><A NAME="naming"></A> <A NAME="ss1.2">1.2 Heritage and naming</A>
+</H2>
+
+<P>Although this is not to be confused with the excellent SHADOW IDS, much of the
+code is directly from, or based on, the Naval Surface Warfare Center, Dahlgren
+Division's SHADOW versions 1.7 and 1.8. To avoid potentially stepping on toes,
+and causing great confusion, we've used IDABench (formerly ShadowIAS), and
+named files and directories accordingly. Current SHADOW users should be fairly
+comfortable with the basic architecture, although there have been significant
+changes, some of which are which are outlined below.
+<P>
+<P>Right up front, the ISTS IDABench team thanks everyone who has contributed to
+both IDABench and SHADOW, and especially J. Fredrick Kerby of the Naval Surface
+Warfare Center, Dahlgren Division and Stephen Northcutt of the SANS Institute
+for their support.  Stephen is one of the finest intrusion analysts on the
+planet, and the original Shadow architect and team leader. Fred is the hand on
+the wheel for NSWC/DD's IS Security section and provided sound guidance to us
+right from the start. Cheers! 
+<P>See the 
+<A HREF="IDABench-1.0-12.html#contributors">Contributors</A> section for a more complete roundup.
+<P>
+<HR>
+<A HREF="IDABench-1.0-2.html">Next</A>
+Previous
+<A HREF="IDABench-1.0.html#toc1">Contents</A>
+</BODY>
+</HTML>

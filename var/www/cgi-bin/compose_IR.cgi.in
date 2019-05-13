@@ -1,0 +1,706 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# compose_IR.cgi  -  idabench Version 1.0
+#
+#
+use CGI qw/:all/;
+use CGI::Carp qw(fatalsToBrowser);
+use CGI qw/:escapeHTML/;
+use CGI qw/:standard *table/;
+use POSIX;
+use Time::Local;
+
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+my $irconf = "$IDABENCH_PATH/etc/ir.conf";
+do $irconf || 
+   die("Unable to open configuration file $irconf.\n");
+
+my $pluginh = "$IDABENCH_LIB_PLUGIN_PATH/plugins.ph";
+unless (my $return = do $pluginh ){
+   die("Unable to parse configuration file $pluginh:\n$@\n") if $@;
+   warn "Unable to determine any plugin paths. No analysis will be done.\n" unless $return;
+}
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local our $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+
+## List of the form values for IDABench sensor sites
+our @SiteFormVals = ();
+
+# Read each site.ph file to harvest its $SITE_FORM_LABEL value
+opendir(DH, $IDABENCH_SITE_PATH) or
+    die "Unable to open site path directory.\n";
+    
+my %SiteValueName = ();
+
+while (my $sitedir = readdir(DH))
+{
+   next unless -f "$IDABENCH_SITE_PATH/$sitedir/site.ph"; # only interested in directories with site.ph present
+   my $sitename = $sitedir;             # site without extension
+   my $ph_filename = "$IDABENCH_SITE_PATH/$sitedir/site.ph";  # full path to file
+   local $main::SITE_FORM_LABEL;      # hide any current value; make undefined
+   do $ph_filename;
+   # Pick up value from file, or default to name of site
+   $main::SITE_FORM_LABEL = $sitename unless $main::SITE_FORM_LABEL;
+   push @SiteFormVals, $sitename;
+   # Hash of field labels indexed by site name
+   $SiteValueName{$sitename} = $main::SITE_FORM_LABEL;
+}
+
+closedir(DH);
+
+# A default choice of site can be included in idabench.conf, if desired
+$IDABENCH_SITE_DEFAULT = $SiteFormVals[0] unless $IDABENCH_SITE_DEFAULT;
+
+
+# Use /tmp/IR_seq for sequence number if testing the script.
+#
+my $IR_SEQNO_FILE = $IDABENCH_IR_SEQNO_FILE;
+my $IR_DATA_FILE = $IDABENCH_IR_DATA_FILE;
+#
+# Define some "constants" for the file locking calls.
+#
+   my $LOCK_EX = 2;
+   my $LOCK_UN = 8;
+   
+my @todays_date =  localtime(time);
+my $today = strftime("%A, %B %d, %Y \@ %T", @todays_date);
+my $todays_date = strftime("%Y%m%d", @todays_date);
+my $idabench_seqno = fetch_seqno();
+
+# This will hold a list of field names
+our @parameters = ();
+
+# This will contain all the information needed to produce the input form
+# and validate the input values.
+our %param_info = ();
+
+{
+    # This is a list of field names, each followed by
+    # an anonymous hash of parameter values
+    my @param_list = &build_form_table();
+
+    # Put those anonymous hashes into a hash by field name
+    %param_info = @param_list;
+
+    my $num_params = scalar(@param_list);
+    for (my $pnum = 0; $pnum < $num_params; $pnum += 2)
+    {
+	push @parameters, $param_list[$pnum];
+    }
+}
+print header,
+start_html(-title=>'Create an Incident Report',
+           -background=>"IDABENCH_RELHTTP_PATH/images/binary.png",
+          );
+if (!param) {
+   print_form();
+} else {
+    # The form has been submitted -- process form data #######################
+    select STDOUT; $| = 1;              # make unbuffered
+    
+    # Check the submitted parameters to ensure that they meet sanity checks and
+    # are not deliberate attempts to sabotage this script.
+    #
+    if(!&check_parameters()) {
+
+    our $summary;
+    
+    # Now that parameters are checked, load the values into variables,
+    # or use the default from param_info table.
+    # Note that this creates a global variable for each field name
+    # Also build up a list of parameters to pass on to other tools
+    our $parmpass;
+    our $rep_num;
+    
+    foreach my $varname (@parameters)
+    {
+      eval "\$$varname = gp(\'$varname\')";
+      if(param($varname))
+      {
+      	my $parval = escapeHTML(&enurl_str(param($varname)));
+	$parmpass .= "&$varname=$parval";
+      }
+    }
+    
+    $summary =~ tr/\r//d;
+    my $mail_subject = "$MAIL_SUB_PREFIX $rep_num  : " . 
+                         "${src_txt}${inci_type}" . $MAIL_SUB_SUFFIX;
+    
+    my $rep_num = update_seqno();
+    my $raw_mail_cmd = "$SENDMAIL_CMD -t -oi";
+    my $obf_mail_cmd = "$SENDMAIL_CMD -t -oi";
+#
+# Create an array of lines of our mail message.
+#
+      my @lines = ("Subject: $mail_subject", "Status: R", " ", @IR_HEADING);
+      push @lines, split(/\n/, <<"EOF" );
+
+$IR_LABEL $rep_num
+
+   1. Report Date: $today
+   2. Incident Date: $inci_date
+   3. Type of Incident: $inci_type
+   4. Subjects Involved: 
+         a. ${src_txt}Source: $inci_source
+         b. Target(s): $inci_target
+   5. Location of Detector: $detector
+   6. Cost of this Incident: $inci_cost
+   7. Summary of Incident and Investigation Results: 
+
+$summary
+
+***** End of $IR_LABEL $rep_num *****
+EOF
+#
+# Create a temporary file and obfuscate the addresses for this report.
+#
+      my $temp_file;
+      do { 
+         $temp_file = tmpnam(); 
+      } until sysopen (TEMP, $temp_file, O_CREAT|O_EXCL|O_RDWR, 0666);
+      foreach my $line (@lines) {
+         print TEMP "$line\n";
+      }
+      close(TEMP);
+      my $obf_cmd = "$IDABENCH_BIN_PATH/obfuscate.pl $temp_file";
+#
+      my @obf_lines;
+      open(OBFUSCATE, "$obf_cmd |");
+      while (<OBFUSCATE>) {
+         chomp($_);
+         push(@obf_lines, $_);
+      }
+      close(OBFUSCATE);
+      unlink("$temp_file");
+#
+# Insert the "To:" line for the raw and obfuscated mail arrays.
+#
+    unshift(@lines, $MAIL_SENDER);
+    unshift(@lines, "To: $raw_mailto");
+    unshift(@obf_lines, $MAIL_SENDER);
+    unshift(@obf_lines, "To: $obf_mailto");
+#
+# Copy the array of uncensored lines to the sendmail command and the 
+# database of Incident Reports we're saving.
+#
+   open(IRDATA, ">>$IR_DATA_FILE") or die "Couldn't open $IR_DATA_FILE\n";
+#
+# Make sure we have exclusive access to the data file.
+#
+      flock(IRDATA, $LOCK_EX);
+      print IRDATA "Obfuscated $obf_lines[0]\nUncensored ";
+      foreach my $line (@lines) {
+         print IRDATA "$line\n";
+      }
+      flock(IRDATA, $LOCK_UN);
+      close(IRDATA);
+#
+      if ($obf_mailto) {
+         open(MAILCMD, "|$obf_mail_cmd");
+         foreach my $line (@obf_lines) {
+            print MAILCMD "$line\n";
+         }
+         close(MAILCMD);
+      }
+#
+      if ($raw_mailto) {
+         open(MAILCMD, "|$raw_mail_cmd");
+         foreach my $line (@lines) {
+            print MAILCMD "$line\n";
+         }
+         close(MAILCMD);
+      };
+#
+      my $mail_contents = join("\n", @obf_lines);
+#
+# print the web page to show user the mail was sent.
+#
+
+     print start_table({-border=>'0', -width=>'100%', -bgcolor=>'#dddddd'}),
+         "<tr><td>",
+         a({-name=>'print', -href=>'javascript:window.print()'},
+         img({-align=>'MIDDLE',-src=>'IDABENCH_RELHTTP_PATH/images/navbars/print.png',-border=>'0'}));
+      foreach my $line (@IR_HEADING) {
+         print h3({-align=>'CENTER'},"$line");
+      }
+      print 
+         hr(),
+         p(),
+         strong("$IR_LABEL "), "$rep_num", 
+         p(),
+         p(),
+         strong("Sent To: "), "$raw_mailto / $obf_mailto",
+         p(),
+         strong("Mail Subject: "), "$mail_subject",
+         hr(),
+         p(),
+         ol({-type=>"1"},
+            li(strong("Report Date: "), "$today\n"), p(),
+            li(strong("Incident Date: "), "$inci_date\n"), p(),
+            li(strong("Type of Incident: "), "$inci_type\n"), p(),
+            li(strong("Subjects Involved: \n")), 
+            ol({-type=>"a"},
+               li(strong("${src_txt}Source:"), "$inci_source\n"), 
+               li(strong("Target(s): "), "$inci_target\n"), 
+            ),
+            p(),
+            li(strong("Location of Detector: "), "$detector\n"),
+            p(),
+            li(strong("Cost of this Incident: "),"$inci_cost\n"), p(),
+            p(),
+            li(strong("Summary of Incident and Investigation Results: 
+")),
+            p(),
+            pre("$summary\n"), p(),
+         ),
+         hr(),
+         h3({-align=>'CENTER'}, "Obfuscated Version:\n"),
+         p(), pre("$mail_contents\n"), p(),
+         h3({-align=>'CENTER'}," Mail sent."),
+       "</td></tr>",
+   end_table();
+   } # End of unless(check_parameters...
+   else
+   {
+       &print_form();
+   }
+}
+print end_html;
+
+##########################################################################
+sub fetch_seqno
+{
+# Read a file for an IR sequence number for todays date. Do not modify the 
+# file at this point. That will be done when the form is submitted.
+#
+# Written by Bill Ralph - 25 Jan 1999
+#
+#
+# Calculate the IR sequence number from todays date.
+#
+   my $todays_prefix = "${IR_SEQNO_PREFIX}${todays_date}";
+   my $todays_seq = "001";
+   if (open(SEQ_FILE, "<${IR_SEQNO_FILE}")) {
+      my $line = <SEQ_FILE>;
+      (my $prefix, my $seq) = split(/\./,$line);
+      if ($prefix eq $todays_prefix) {
+         $todays_seq = sprintf("%03d", ++$seq);
+      }
+   }
+   my $new_seqno = "${todays_prefix}.${todays_seq}";
+   return $new_seqno;
+}
+#
+sub update_seqno
+{
+# Read a file for an IR sequence number for todays date. If it exists, 
+# increment and resave it. If not create the file, create the seq no, and 
+# save it.
+#
+# Written by Bill Ralph - 12/29/98
+#
+#
+# Calculate the IR sequence number from todays date.
+#
+   my $todays_prefix = "${IR_SEQNO_PREFIX}${todays_date}";
+   my $todays_seq = "001";
+   my $new_seqno = "${todays_prefix}.${todays_seq}";
+   if (-s ${IR_SEQNO_FILE}) {
+      open(SEQ_FILE, "+<${IR_SEQNO_FILE}")
+          or die("Unable to open IR Sequence file");
+      flock(SEQ_FILE, $LOCK_EX);
+      my $line = <SEQ_FILE>;
+      (my $prefix, my $seq) = split(/\./,$line);
+      if ($prefix eq $todays_prefix) {
+         $todays_seq = sprintf("%03d", ++$seq);
+      }
+      $new_seqno = "${todays_prefix}.${todays_seq}";
+      seek(SEQ_FILE, 0, 0);
+      print SEQ_FILE "$new_seqno\n";
+      close(SEQ_FILE);
+      flock(SEQ_FILE, $LOCK_UN);
+   } else {
+      open(SEQ_FILE, ">${IR_SEQNO_FILE}")
+          or die("Unable to create IR Sequence file");
+      $new_seqno = "${todays_prefix}.${todays_seq}";
+      print SEQ_FILE "$new_seqno\n";
+      close(SEQ_FILE);
+   }
+   return $new_seqno;
+}
+#
+#
+#
+sub build_form_table
+{
+    return (
+       rep_num => 
+       {
+           param_label => $IR_LABEL,
+           maxlen => "29",
+           param_type => "string",
+           default_value => $idabench_seqno,
+           validity_string => '-A-Z0-9/.',
+       },
+       raw_mailto => 
+       {
+           param_label => "Actual Addresses Mail Recipients: ",
+           maxlen => "30",
+           param_type => "string",
+           default_value => "$RAW_RECIPIENTS",
+           validity_string => "-A-Za-z0-9@._ ",
+       },
+       obf_mailto => 
+       {
+           param_label => "Obfuscated Addresses Mail Recipients: ",
+           maxlen => "30",
+           param_type => "string",
+           default_value => "$OBF_RECIPIENTS",
+           validity_string => "-A-Za-z0-9@._ ",
+       },
+       inci_date => 
+       {
+           param_label => "Incident Date: ",
+           maxlen => "20",
+           param_type => "string",
+           default_value => strftime("%d %b %Y", @todays_date),
+           validity_string => "-A-Za-z0-9, ",
+       },
+       inci_type =>
+       {
+           param_label => "Type of Incident: ",
+           maxlen => "60",
+           param_type => "popup",
+           values => [ @INCIDENT_TYPES ],
+           default_value => $DEFAULT_INCI_TYPE,
+       },
+       inci_source => 
+       {
+           param_label => "Source: ",
+           maxlen => "35",
+           param_type => "string",
+           default_value => "",
+           validity_string => "-A-Za-z0-9@._ ",
+       },
+       foreign_flag => 
+       {
+           param_label => "Click if from Foreign Source: ",
+           maxlen => "2",
+           param_type => "string",
+           default_value => "ON",
+           validity_string => "ON",
+       },
+       inci_target => 
+       {
+           param_label => "Target(s): ",
+           maxlen => "55",
+           param_type => "string",
+           default_value => $IR_TGT_LABEL,
+           validity_string => "-A-Za-z0-9()._, ",
+       },
+       detector=> 
+       {
+           param_label => "Location of Detector: ", 
+           maxlen => "50",
+           param_type => "popup",
+           values => \@SiteFormVals, 
+           labels => \%SiteValueName,
+           default_value => $IDABENCH_SITE_DEFAULT,
+       },
+       inci_cost => 
+       {
+           param_label => "Cost of this Incident: ",
+           maxlen => "20",
+           param_type => "string",
+           default_value => "No Downtime.",
+           validity_string => q`-A-Za-z0-9_.(),[]{}<>=!&|@$%*+=:?'"/ `,
+       },
+       summary => 
+       {
+           param_label => 
+               "Summary of Incident with Investigation Results: ",
+           maxlen => "1000",
+           param_type => "textbox",
+           default_value => "",
+           validity_string => qq`-\r\nA-Za-z0-9_.(),[]{}<>=!&|@$%*+=:?'"/ `,
+       },
+    );
+}
+
+# One argument: field name
+# Return a list of the text for a popup menu using the possible values of this field
+#
+sub UI_popup_menu {
+    my $name = shift;
+    popup_menu(-name=>$name,
+    	    -values=>$param_info{$name}{values},
+	    -labels=>$param_info{$name}->{labels},
+	    -default=>$param_info{$name}{default_value});
+}
+
+# One argument: field name
+# Return a list of the text for a scrolling list using the possible values of this field
+#
+sub UI_scrolling_list {
+    my $name = shift;
+    popup_menu(-name=>$name,
+            -size => 1,
+    	    -values=>$param_info{$name}{values},
+	    -default=>$param_info{$name}{default_value});
+}
+
+# One argument: field name
+# Return a list of the text for a radio group using the possible values of this field
+#
+sub UI_radio_group {
+    my $name = shift;
+    radio_group(-name=>$name,
+               -values=>$param_info{$name}{values},
+               -default=>$param_info{$name}{default_value});
+}
+
+#
+# Subroutine to create a text field from param_info table
+#
+sub UI_textfield {
+    my $name = shift;
+    textfield(-name=>$name,
+             -size=>$param_info{$name}{field_size},
+             -maxlength=>$param_info{$name}{maxlen},
+             -default=>$param_info{$name}{default_value});
+}
+
+# One argument: field name
+# Return a field's label, or blank if none.
+#
+sub UI_label {
+    my $name = shift;
+    my $label = $param_info{$name}{param_label};
+    $label = "" if(!($label));
+    return $label;
+}
+
+# One argument: field name
+# Return a list of the text for a popup menu using the possible values of this field
+# If the field has a label in param_info, use it to label the menu.
+sub UI_label_popup {
+    my $name = shift;
+    (UI_label($name), UI_popup_menu($name));
+}
+
+# One argument: field name
+# Return a list of the text for a radio group using the possible values of this field
+# If the field has a label in param_info, use it to label the group.
+sub UI_label_radio {
+    my $name = shift;
+    (UI_label($name), UI_radio_group($name));
+}
+
+# One argument: field name
+# Return a list of the text for a text input field.
+# If the field has a label in param_info, use it to label the input box.
+#
+sub UI_label_textfield {
+    my $name = shift;
+    (UI_label($name), UI_textfield($name));
+}
+
+# One argument: field name
+# Return the input value or the default from $param_info
+#
+sub gp {
+    my $name = shift;
+    return (param($name)) ? param($name) : $param_info{$name}{default_value};
+}
+
+# One argument : string to url encode
+# Returns encoded string
+sub enurl_str {
+    my $KeepUnencoded = 'a-zA-Z 0-9_\\-@.=';
+    my($toencode) = @_;
+    $toencode=~s/([^$KeepUnencoded])/sprintf("%%%02X",ord($1))/ego;
+    $toencode=~s/ /+/gm;
+    return $toencode;
+}
+
+###############################################################################
+#
+# Subroutine to print fill out form.
+#
+sub print_form {
+   print table({-border=>'0', -width=>'100%', -bgcolor=>'#eeeeee'},
+     Tr(
+       td(
+          start_form(-target => '_self'),
+          h3({-align => 'CENTER'}, $IR_HEADING[0]),
+          h3({-align => 'CENTER'}, $IR_HEADING[1]),
+          submit(-name => 'Action', -label=>'Send It'),
+          p(), UI_label_textfield('rep_num'),
+          p(), UI_label_textfield('raw_mailto'),
+          p(), UI_label_textfield('obf_mailto'),
+          ol({-type => '1'},
+              p(),
+              li("Report Date: $today"),
+              p(),
+              li(UI_label('inci_date')),
+              UI_textfield('inci_date'),
+              p(),
+              li(UI_label('inci_type')),
+              UI_scrolling_list('inci_type'),
+              p(),
+              li("Subjects Involved: "),
+              p(),
+              ol(
+                  {-type => 'a'},
+                  li(UI_label('inci_source')),
+	          UI_textfield('inci_source'),
+#
+#         checkbox( 
+#                  -name => 'foreign_flag',
+#                  -checked => 0,
+#                  -value => $param_info{foreign_flag}{value},
+#                  -label => $param_info{foreign_flag}{param_label},
+#                 ),
+#
+              li(UI_label('inci_target')),
+              UI_textfield('inci_target'),
+          ),
+#
+          p(),
+          li(UI_label('detector')),
+          UI_scrolling_list('detector'),
+          p(),
+          li(UI_label('inci_cost')),
+          UI_textfield('inci_cost'),
+          p(),
+          li(UI_label('summary')),
+          textarea(
+              -name => 'summary',
+              -rows => 10,
+              -cols => 80,
+              -wrap => 'physical',
+              -value => $param_info{summary}{value},
+          ),
+      ),
+      p(),
+      submit(-name => 'Action', -label=>'Send It'),
+      end_form,
+      ),
+    ),
+  );
+}
+
+# No arguments.
+# Check the submitted parameters for validity.
+#
+sub check_parameters {
+
+   my $aborted = 0;
+   # First look for required fields
+   foreach (@parameters)
+   {
+    	my $requirement = $param_info{$_}{required};
+	next if(!($requirement));
+	if(($requirement eq "yes") and (!(param($_))))
+	{
+            print p(), b(i("Field $param_info{$_}{param_label} is required"));
+            $aborted++;
+	}
+   }
+
+   # Now see that the parameters actually supplied are valid
+   unless ($aborted) {
+      foreach my $p (param()) {
+         my $errors_found = 0;
+	 
+	 # Allow Action parameter, not in table
+         next if ($p eq 'Action');
+	 
+         my $pval = param($p);
+	 # Allow zero-length parameter
+         next if (length($pval) == 0);
+	 
+	 my $ml = $param_info{$p}{maxlen};
+	 # Reject if too long
+         if (length($pval) > $ml)
+	 {
+	    $errors_found++;
+	 }
+	 
+         unless ($errors_found) {
+	    my $param_type = $param_info{$p}{param_type};
+            if ($param_type eq "string"){
+	    
+	       # For string parameters, reject any characters not in validity string
+               my $validstr = $param_info{$p}{validity_string};
+               # Escape slashes in validity string so tr won't be confused
+               $validstr =~ s{\\}{\\\\}g;
+               $validstr =~ s{/}{\\/}g;
+               $_ = $pval;
+                eval "tr/$validstr//d";
+               if (length($_))
+	       {
+	           $errors_found++;
+#		   my $llll = length($_);
+#		   print p(), "$llll invalid chars [$_] >";
+	       }
+
+            } elsif (($param_type eq "popup") or ($param_type eq "radio")) {
+	    
+	       # For radio or popups, allow only values in param table
+               unless (grep { /$pval/ } @{ $param_info{$p}{values} })
+	       {
+	           $errors_found++;
+#		   print p(), "for param_type $param_type, value not in list >";
+	       }
+	       
+            } elsif ($param_type eq "number") {
+	    
+	    	# Range check numbers
+               if (($pval < $param_info{$p}{min_value}) or 
+                                    ($pval > $param_info{$p}{max_value}))
+	       {
+	           $errors_found++;
+#		   print p(), "value out of range >";
+	       }
+            }
+         }
+	 
+         if ($errors_found) {
+	    my $fieldlabel = $param_info{$p}{param_label};
+	    if($fieldlabel)
+	    {
+            	print p(), b(i("Invalid value $pval for: $fieldlabel."));
+	    }
+	    else
+	    {
+            	print p(), b(i("Invalid value: $pval."));
+	    }
+         }
+         $aborted += $errors_found;
+      }
+   }
+   return $aborted;
+}

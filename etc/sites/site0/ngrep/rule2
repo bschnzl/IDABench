@@ -1,0 +1,10 @@
+
+# Look for obvious signs of a root compromised unix system
+(uname -a;|useradd [a-z]+)
+
+# Examine only tcp and udp while ignoring web & mail traffic
+(tcp and !(src port 80 or port 25) and (tcp[13] & 0x18 = 0x18)) or udp
+
+# The match should break on word boundries
+# Print out the next two packets that follow the match
+wA2

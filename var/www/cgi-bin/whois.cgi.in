@@ -1,0 +1,75 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# whois.cgi         - idabench-v1.0
+#
+#
+#
+use CGI qw/:standard *table/;
+use CGI::Carp qw(fatalsToBrowser);
+#
+print header,
+start_html(-title=>'Fetch Whois Information',
+           -background=>"IDABENCH_RELHTTP_PATH/images/binary.png",
+          );
+%labels = ('rs.internic.net'=>'NIC', 'whois.arin.net'=>'America',
+           'whois.ripe.net'=>'Europe', 'whois.apnic.net'=>'Asia/Pacific',
+           'whois.networksolutions.com'=>'NetSol', 'whois.geektools.com'=>'Geektools',
+           'whois.nic.mil'=>'MIL', 'whois.nic.gov'=>'GOV');
+print start_table({-border=>'0', -width=>'100%', -bgcolor=>'#dddddd'});
+if (!param) {
+   print Tr(td({-align=>'left'},
+   h3({-align=>CENTER}, "IDABench WHOIS Query"),
+   start_form(-target =>'_self'),
+   "Enter your query: ",
+   textfield(-name=>'search_field',
+             -size=>45),
+   p("Which WHOIS server(s) do you want to query? "),
+   checkbox_group(-name=>'server',
+               -rows=>2,
+               -values=>['rs.internic.net','whois.arin.net','whois.ripe.net',
+                         'whois.apnic.net', 'whois.nic.mil',
+                         'whois.networksolutions.com', 'whois.geektools.com',
+                         'whois.nic.gov'],
+               -labels=>\%labels,
+               -defaults=>['whois.geektools.com']),
+   p(),
+   submit(-name=>'whois',-value=>'Who is it?'),
+   end_form,
+   )),
+} else {
+   @servers = param('server');
+   $search_field = param('search_field');
+   select STDOUT; $| = 1;              # make unbuffered
+#
+#  Try to insure that our user sent some reasonable valid data.
+#
+   my $sf = $search_field;
+   if ((length($sf) > 45) or ($sf =~ tr/ -\?A-Za-z0-9\._//cd)) {
+      print h1("Invalid search field.");
+      print "</td></tr>", end_table, end_html;
+      exit(1);
+   }
+   foreach $server (@servers) {
+      if ((length($server) > 45) or ( !$labels{$server})) {
+         print h1("Naughty, naughty you are trying something fishy here.");
+         print "</td></tr>", end_table, end_html;
+         exit(1);
+      }
+   }
+   print Tr(td({-align=>'left'},h2("Your answers: "))),
+   " Seeking Info on: ", $search_field, "\n<PRE>\n";
+   foreach $server (@servers) {
+      system('/usr/bin/whois', "$search_field\@${server}");
+   }
+   print "\n</PRE></td></tr>";
+}
+
+print end_table(), end_html;

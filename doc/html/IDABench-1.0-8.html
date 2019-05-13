@@ -1,0 +1,327 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Hourly plugin filters</TITLE>
+ <LINK HREF="IDABench-1.0-9.html" REL=next>
+ <LINK HREF="IDABench-1.0-7.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc8" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-9.html">Next</A>
+<A HREF="IDABench-1.0-7.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc8">Contents</A>
+<HR>
+<H2><A NAME="pluginfilters"></A> <A NAME="s8">8. Hourly plugin filters</A></H2>
+
+<H2><A NAME="tcpdumpfilters"></A> <A NAME="ss8.1">8.1 tcpdump filters</A>
+</H2>
+
+<P>When IDABench retreives hourly dumpfiles from the sensor(s), if you are using
+the tcpdump plugin and there are filters in the site's tcpdump directory, these
+filters are passed to tcpdump to match on packet header conditions.
+<P>
+<P>Without using some pretty heady filter sleight-of-hand, tcpdump filters cannot
+match on packet contents, merely their headers. Things like source and
+destination hostname or ip address, ports, flags, options, etc. are available
+for examination by specifying what to look for in the filter.
+<P>
+<P>A simple filter might be:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+tcp and dst host www.mynet.net
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>This would print out all packets containing tcp segments that are headed to
+that webserver. Now, this rule will probably result in a pretty big report, if
+the webserver is accessed with any regularity. It might be a little more
+useful to report on packets headed for the webserver that don't look like web
+requests. One basic condition that must be true, if it is normal web traffic,
+is the destination port must be the well-known port for web traffic: port 80.
+<P>
+<P>Here's the more specific rule:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+tcp and dst host www.myweb.net and (not dst port 80)
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>The parentheses weren't really necessary here, although they often make it
+easier to read complex filters by breaking them up into logical components.
+They can also be used to group elements before negation, or to aggregate
+elements to be sure that tcpdump interprets the filter as you intended. For
+instance:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+udp and not port 53 or port 137 or port 123
+</PRE>
+</CODE></BLOCKQUOTE>
+
+is very different from:
+<BLOCKQUOTE><CODE>
+<PRE>
+udp and not (port 53 or port 137 or port 123)
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>You can be very specific in what header values to match against, especially if
+you tell tcpdump what bytes to examine. When looking at the actual values of
+specific bytes within the headers, you can perform many different mathematical
+operations on those values of contents before making a comparison. The basic
+rule is this, if your expression evaluates true, the packet will be printed.
+Here's what we can do with this:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+src port 80 and (tcp[2:2] > 1023)
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>This tells tcpdump to match on two conditions. First, see if it has a source
+port of 80. Then, go to the beginning of the tcp header, move down (offset) 2 
+bytes and read the value of the next two bytes. If that returned value is
+greater than (>) 1023, we have a match and tcpdump will display it. Since we all
+know that tcp[2:2] is the destination port (see rfc793) this filter will
+obviously fire on traffic going TO a web client.
+<P>
+<P>For more details on tcpdump filters, the tcpdump man pages are an excellent
+resource, as is the SANS Institute/NSWCDD's excellent document "Intrusion
+Detection -- Shadow Style, A Primer for Intrusion Detection Analysts". It is
+included in the doc/historical directory in .txt and .doc formats.
+<P>
+<P>IDABench's tcpdump plugin has the ability to strip out comments as well as to
+do simple variable substitution, making filter files easier to document, easier
+to read, and considerably more portable. 
+<P>
+<P>Variables, if you choose to use them, are assigned one per line, beginning with
+the keyword "var". They, for now, should contain a variable name followed by a
+space, an equal sign, a space, and the desired value. To use a variable, simply
+include the variable name prefixed with a dollar sign ($) wherever you want to
+represent the assigned value. For example:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+   # variables start here
+   var MYNET = 172.31.0.0/22
+   var FTP = ftp.goodguys.org
+   var REVPROXY = 172.31.1.6
+   var PRXPORT = 33128
+   # no more vars
+   
+   dst net $MYNET and ip[6:2] &amp; 0x1f != 0     # fragments from the outside
+   icmp and not src net $MYNET                    #icmp not from the inside
+   # ftp connection attempts to hosts other than the ftp server
+   dst net $MYNET and dst port 21 and (tcp[13] &amp; 0x3f = 2) and !(dst host $FTP)
+   dst host $REVPROXY and not dst port $PRXPORT
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>If your filters are based on organizational policy you may be able to centrally
+develop filtersets so all that need be modified for different "sites" are the
+values assigned, greatly simplifying filter management.
+<P>
+<P>TCPDUMP FILTER NOTES: The only place variables can be assigned is the beginning
+of the filter file. Once the body of the filter itself begins, any further
+variable assignments will be discarded. For this release, the tcpdump plugin
+DOES NOT support lists of values for a single variable name.
+<P>
+<H2><A NAME="ngrepfilters"></A> <A NAME="ss8.2">8.2 ngrep filters</A>
+</H2>
+
+<P>Ngrep filters are used for matching on both content (packet payload) and packet
+header conditions. 
+<P>
+<P>IMPORTANT!
+These rules are not a substitute for a content matching rule-based IDS. It is
+trivial for an attacker to evade network grep detection, and should only be
+used for reporting on events that are predictable.
+<P>
+<P>
+<P>
+<H3>Syntax:</H3>
+
+<P>Each filter is a separate file containing two or three lines. The first line is
+a regular expression used to match against the payloads of packets which match
+the second line's bpf (libpcap-style filter). If a packet doesn't match the
+second line, the payload isn't checked against the regex on the first line.
+Comments are ignored when parsing filter lines. The third line is optional and
+contains additional commandline switches that are passed to ngrep. See the
+section on "Switches", below.
+<P>
+<P>For example:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+user: root
+tcp and dst port 110
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>This simple filter will look for POP3 authentication attempts as the root user.
+To extend this a bit further, we can exclude systems from which this may be
+legal:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+        # Robin Oot retrieves her mail from her workstation
+        user: root
+        tcp and (dst port 110) and not (src host robinsmachine.mydomain.org)
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>        
+Maybe we want to watch for a couple of different account names, perhaps
+disregarding whether uppercase or lowercase in the command:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+        # Robin Oot retrieves her mail from her workstation
+        # and Alvin D'min has an account there, too
+        [Uu][Ss][Ee][Rr]: (root|[Aa]dmin)
+        tcp and (dst port 110) and not (src host robinsmachine.mydomain.org)
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>Note how using square brackets creates alternatives. These are called
+"character classes", and will match anything within the brackets one
+time. The pipe ("|"), or infix operator, indicates alternation; it
+allows for alternate matches. Here's the logic this expression follows:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+                U or u
+                followed by
+                S or s
+                followed by
+                E or e
+                followed by
+                R or r
+                followed by
+                :
+                followed by
+                (one space)
+                followed by
+                        (root
+                        or
+                                (A or a
+                                followed by
+                                dmin)
+                        )        
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<H3>A few specific pattern notes -</H3>
+
+<P>A dot (".") matches any character. If you merely wish to print out all
+content that matches a particular bpf, the first line need only contain
+this.
+<P>
+<P>?, +, {, |, (, and ) are metacharacters and need to be escaped by preceding
+them with a backslash ("\") if used as match characters. For instance, the
+pattern: foobar? would match "fooba", "foobat", or "foobacon" as the ?
+indicates an optional character. The pattern foobar\? would match "foobar?",
+specifically.
+<P>
+<P>Have a peek at the man pages for ngrep(8) regex(7) and grep(1) for some more
+details. The only book we've found that covers GNU regex is Jeffrey
+Friedl's 'Mastering Regular Expressions', O'Reilly, 1997.
+<P>
+<H3>Switches:</H3>
+
+<P>Ngrep is called by the ngrep.ph plugin with certain commandline switches. By
+specifying additional ones here, you can modify ngrep's match and output
+behavior.
+<P>
+<P>The switches that are used by the plugin by default are:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+t       Print a timestamp on every line
+q       Be quiet. Don't report on bpf matches with a hashmark
+I -     Accept packet input from STDIN as the hourly file is fed to it.
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>The only additional ngrep commandline switches that can be specified in the
+filters are as follows. Anything other than these will be disregarded:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+x       Print packet payloads as hexadecimal as well as ASCII
+X       Treat the match expression as a hexadecimal string. Great for
+        matching binary content
+v       Invert the match. Print out content that doesn't contain the expr.
+w       Treat the pattern as a word. Implies word boundaries at either end.
+Anum    Print num of packets after a match is successful. Good for
+        seeing follow on activity.
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>The order doesn't matter, EXCEPT "Anum" must be the last switch, if present.
+Thus: XxA5 works as you expect it to, while A5Xx doesn't.
+<P>
+<P>        
+A few examples:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+# Look for Kazaa/Morpheus traffic
+X-Kazaa-Username
+tcp port 1214
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+# Alert on any traffic with content to the honeypot 
+.
+ip and (dst host hpot.mynet.com) and !(src net mynet.com)
+xA5
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+# Alert on SMB null session attempts
+# The match string is in hex
+49504324003f3f3f3f3f
+tcp and dst port 139 and tcp[13] &amp; 0x10 = 0x10
+Xx
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+# Print out syslog traffic from the border routers' ACLs
+IPACCESSLOG
+udp and dst port 514 and (src host router1 or src host router2)
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<H2><A NAME="findscanfilters"></A> <A NAME="ss8.3">8.3 findscan filters</A>
+</H2>
+
+<P>When IDABench retreives hourly dumpfiles from the sensor(s), if you are using
+the findscan plugin and there is a filter in the site's tcpdump directory, this
+filter is passed to tcpdump to match on header conditions before examining the 
+resultant packets for evidence of scanning.
+<P>
+<P>This single filter (we call it filter.getall, but you can call it anything you
+want) follows the same syntax rules as tcpdump plugin filters. You probably
+don't want to be too restrictive here, as scan traffic can take on many forms.
+Here, I'd rather suffer from a few more false positives than to miss a targeted
+reconnaissance effort; by paying attention to the ratio column in the findscan
+output, an analyst can quickly identify likely false positives without having
+to resort to a lengthy investigation.
+<P>
+<P>Refer to the 
+<A HREF="#tcpdumpfilters">tcpdump filters</A> section, above, for format details.
+<P>
+<HR>
+<A HREF="IDABench-1.0-9.html">Next</A>
+<A HREF="IDABench-1.0-7.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc8">Contents</A>
+</BODY>
+</HTML>

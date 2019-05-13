@@ -1,0 +1,191 @@
+
+SHADOW Version 1.7
+
+written by Bill Ralph <RalphWD@nswc.navy.mil>
+last modified:        6 Sep 2001
+
+Contents of this package:
+
+     SHADOW-1.7: The main analyzer directory, containing the principal SHADOW 
+              scripts.
+
+     README
+     accessories/
+     analyzer_crontab.root
+     analyzer_crontab.shadow
+     cleanup.pl
+     comment_strip
+     docs/
+     etc/
+     fetchem.pl
+     filters/
+     find_scan.pl
+     firewall/
+     httpd/
+     obfuscate.pl
+     pat_search.pl
+     print_stats.pl
+     run_daily_stats.pl
+     sensor/
+     sites/
+     sort_and_resolve.pl
+     statistics.ph
+     statistics.pl
+     statistics_glob.pl
+
+     SHADOW-1.7/docs: This subdirectory contains documentation of the
+                      SHADOW package, including the README files for each
+                      of the previous releases, some general installation
+                      instructions, the manifest, etc.
+
+     INSTALL
+     MANIFEST
+     README-1.0
+     README-1.2
+     README-1.3
+     README-1.3a
+     README-1.4
+     README-1.4a
+     README-1.4b
+     README-1.5
+     README-1.6
+     README-1.7
+     VERSION
+
+     SHADOW-1.7/accessories: This subdirectory contains a README file with 
+                             URLs that link to sites holding the auxilliary 
+                             tools needed for SHADOW. In addition, the 
+                             following tools are also included:
+
+    accessories:
+        README
+    
+    accessories/RPMS:        For RedHat Linux users, this subdirectory
+                             contains the RPMs necessary to install the
+                             tailored versions of tcpdump and OpenSSH used
+                             by SHADOW. Note, a different version of tcpdump
+                             than the one furnished by RedHat is absolutely
+                             necessary!!!!! SHADOW will not run with the
+                             RedHat version. The OpenSSH version built here
+                             only combines all the pieces into a single RPM.
+
+        libpcap-0.6.2-wdr2.i386.rpm
+        openssh-2.9p2-667.i386.rpm
+        openssl-0.9.6-3.i386.rpm
+        tcpdump-3.6.2-wdr2.i386.rpm
+    
+    accessories/patches:     This directory contains the patch to tcpdump to
+                             make it work properly with SHADOW. How to apply
+                             the patch is specified in the README file.
+
+        README
+        tcpdump-3.6.2-wdr2.patch
+    
+    accessories/specs:       Again, only for RedHat Linux users, these two
+                             files are the spec files used to build the 
+                             RPM packages.
+
+        tcpdump-wdr-3.6.2.spec
+        wdr_openssh-2.9p2.spec
+    
+    accessories/tarballs:    For those who are not RedHat Linux users, the
+                             original tarballs are furnished for libpcap,
+                             tcpdump, OpenSSH, openssl, and Compress-Zlib.
+                             Each package should be built and installed 
+                             according to the instructions furnished within.
+
+        Compress-Zlib-1.11.tar.gz
+        libpcap-0.6.2.tar.gz
+        openssh-2.9p2.tar.gz
+        tcpdump-3.6.2.tar.gz
+        x11-ssh-askpass-1.2.2.tar.gz
+
+     filters/Site1:      The subdirectory containing example filters for an
+                         site named "Site1."
+
+     README
+     filter.getall.doc
+     goodhost.filter.doc
+     icmp.filter.doc
+     ip.filter.doc
+     tcp.filter.doc
+     udp.filter.doc
+
+
+     SHADOW-1.7/httpd/cgi-bin: This subdirectory contains the cgi-bin scripts
+                               necessary for running the SHADOW system. The
+                               scripts will need to be moved to the cgi-bin 
+                               directory specified in your Apache configuration
+                               file.
+
+     compose_IR.cgi
+     kill_group.cgi
+     lookup.cgi
+     search.cgi
+     tools.cgi
+     whois.cgi
+     privileged:
+          .htaccess
+          nmap.cgi
+          nmap_pwd
+
+     SHADOW-1.7/httpd/conf: This subdirectoy contains examples of the Apache
+                            configuration files which work for us. See the 
+                            Apache documentation for more detailed information.
+
+     access.conf
+
+     SHADOW-1.7/httpd/home: This subdirectory contains the home page of the 
+                            SHADOW analyzer. It must be placed where you set
+                            the "DocumentRoot" variable in your Apache 
+                            configuration files.
+
+     index.html
+     shadow.html
+     .htaccess
+
+     SHADOW-1.7/httpd/images: This subdirectory contains the images and icons
+                              used by the SHADOW system to generate its web 
+                              pages.
+
+     08a.jpg
+     GoodGuysLogo.jpg
+     abort.jpg
+     blank_blue.jpg
+     compose.jpg
+     directory.jpg
+     lookup.jpg
+     nmap.jpg
+     print.jpg
+     report.jpg
+     scan.jpg
+     search.jpg
+     team_shadow.jpg
+     whois.jpg
+     navbars/2/1.jpg
+     navbars/2/1off.jpg
+     navbars/2/2.jpg
+     navbars/2/3.jpg
+     navbars/2/5.jpg
+     navbars/2/5off.jpg
+
+     SHADOW-1.7/sensor: This subdirectory contains the scripts which the sensor
+                        machine runs to collect the tcpdump raw data. Only the
+                        contents of this directory need to be on the sensor.
+
+     README.scripts
+     sensor_crontab
+     sensor_init.sh
+     start_logger.pl
+     stop_logger.pl
+     sensor_driver.pl
+     std.ph
+     std.filter
+     gmt.ph
+     gmt.filter
+
+     SHADOW-1.7/sites: This subdirectory contains examples of the Perl header
+                       files used by the SHADOW analyzer, which must be 
+                       customized for your site.
+
+     Site1.ph

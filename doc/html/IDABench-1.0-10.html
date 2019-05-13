@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Writing plugins</TITLE>
+ <LINK HREF="IDABench-1.0-11.html" REL=next>
+ <LINK HREF="IDABench-1.0-9.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc10" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-11.html">Next</A>
+<A HREF="IDABench-1.0-9.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc10">Contents</A>
+<HR>
+<H2><A NAME="writingplugins"></A> <A NAME="s10">10. Writing plugins</A></H2>
+
+<P>IDABench looks for plugins in the directory designated by IDABENCH_LIB_PLUGIN_PATH
+in the idabench.conf file.  Plugins are written in Perl.  Hourly analysis
+plugins should have the extension .ph, and search plugins the extension .se.
+<P>
+<H2><A NAME="ss10.1">10.1 Hourly Analysis Plugins</A>
+</H2>
+
+<P>These plugins consist of two parts, the plugin definition files and rule files.
+A plugin definition file ends with extension .ph and defines the plugin for
+all sensor sites.  However, the plugin will only be active for sites which
+have rule files for that plugin.  For example, there is an ngrep plugin named
+ngrep.ph in directory IDABENCH_LIB_PLUGIN_PATH.  If there are two sensor sites,
+NorthGate and SouthGate, IDABench will look in directories
+<CODE>IDABENCH_SITE_PATH/NorthGate/ngrep</CODE> and  <CODE>IDABENCH_SITE_PATH/SouthGate/ngrep</CODE> for
+rule files, which may have any name.  For each site, in each hour, IDABench will
+call ngrep once with each rule file, then concatenate the output and process
+it in aggregate.  The resulting output will be appended to the web page
+generated for that hour's data.  The meaning of a rule file is up to the
+specific tool - it can contain any parameters the tool needs, allowing the
+action of the plugin to be site-specific.
+<P>
+<P>A plugin definition file must define the following four Perl variables: $head,
+$color, $individual, and $aggregate.
+<P>
+<P>
+<UL>
+<LI>$head is the string to be displayed on the web page in order to introduce the
+output from the plugin.
+
+<P>
+</LI>
+<LI>$color is the background color to use in that section of the report.
+
+<P>
+</LI>
+<LI>$individual is a Perl subroutine that takes two arguments: the name of a rule
+file and the name of an output file.  The routine must return a string which
+will be called to invoke the tool on input from stdin, and send the output to
+the output file.  The subroutine may make use of parameters in the
+idabench.conf file, by prefixing them with the namespace IDABENCH, as in
+$IDABENCH::TCPDUMP_CMD.  The $individual subroutine will be executed on each
+rule file found for a given site, in alphabetical order.
+
+<P>
+</LI>
+<LI>$aggregate is a Perl subroutine that takes a single argument: the name of a
+file containing the concatenated output from all the invocations of
+$individual.  The subroutine should take its input from this file and write to
+stdout, in a form suitable for display in the html file.  The output will
+appear between &lt;PRE> and &lt;/PRE> tags.
+</LI>
+</UL>
+<P>
+<P>To summarize, each time raw tcpdump files are pulled from sensor sites, IDABench
+will look for hourly analysis plugins that have associated rule files.  For
+each rule file found, it will call $individual to build a process, and then
+pipe tcpdump packet data through these processes, concatenating the results
+into a file.  Then it will call $aggregate on this file, and append the output
+to the hourly web page.  It will do this for each plugin, in alphabetical
+order, preceding each one with $head, and coloring the output using $color.
+<P>
+<H2><A NAME="ss10.2">10.2 Search plugins</A>
+</H2>
+
+<P>These plugins allow you to add new search and analysis tools to IDABench.  They
+appear as new search forms which can specify ranges of data to process and
+produce a web page displaying the results.  There is quite a lot involved, as
+the form must be specified and displayed, data gathered and validated, the
+correct span of data processed, and the output formatted for display.  We have
+attempted to factor out the common work, so you can concentrate on what is
+unique to your tool.
+<P>
+<P>The plugin should be placed in a file in the directory indicated by
+IDABENCH_LIB_PLUGIN_PATH.  The file should have extension .se.  The part of the
+file name before the extension will be used as the name of the plugin (see
+tcpdump, ngrep, and tethereal for examples).  Links to the plugin forms will
+appear in alphabetical order on the IDABench Search Tools page.
+<P>
+<P>A search plugin must define one string, $heading, and five subroutines,
+build_form_table, plugin_validation, build_search_command,
+transform_plugin_line, and answer_heading.  Any of these may make use of
+variables defined in idabench.conf directly; it is not necessary to prepend
+the IDABENCH namespace as it is for hourly analysis plugins.  They may also
+define and share global variables, so long as these do not conflict with
+variables in search.cgi.
+<P>
+<UL>
+<LI><P>
+</LI>
+<LI>$heading is used as the title of the output page.
+
+<P>
+</LI>
+<LI>build_form_table() returns a list of all fields to appear in the search form.
+Each field is a hash containing some required and some optional values that
+define the field.  The fields will appear on the form in the order they are
+defined.  When the form is submitted, each field will be validated according
+to criteria specified in the table.  If all fields are valid, then a Perl
+variable is created for each field, containing the value submitted.  These
+values are accessible to . . .
+
+<P>
+</LI>
+<LI>plugin_validation() which performs any additonal validation which cannot be
+specified in the form table.  It should increment the variable $aborted if
+errors are found.  Any information for the user should be printed to stdout.
+If there are no errors . . .
+
+<P>
+</LI>
+<LI>build_search_command() will be executed.  This subroutine uses variables from
+the form to build a command to run the tool, which it should return as a
+string.  This command will be executed repeatedly to process each hour's data
+that is within the selected range.  Normally the tcpdump data will be piped to
+the command as stdin, and the tool should send its output to stdout.  Some
+tools require an input file, rather than stdin, however.  At present these
+tools can only be accomodated if they can handle a gzipped tcpdump file.  To
+use file input instead of stdin, the plugin definition file should set the
+global variable $takes_file to 1.  This will cause the input file name to be
+appended to the end of the command line each time the command is run.  For
+example, the plugin for tethereal contains the following lines:
+
+<BLOCKQUOTE><CODE>
+<PRE>
+ $takes_file = 1;
+    my $barepattern = $teth_pat;
+    our $pattern = "\'$barepattern\'";
+   my $lookup = ($nslookup eq "Yes") ? "" : "-n";
+   my $cmdline = "$TETHEREAL_CMD $lookup -t ad -R $pattern -r";
+</PRE>
+</CODE></BLOCKQUOTE>
+
+
+<P>The -r option tells tethereal to expect a file name next, and search.cgi will
+append this name before executing the command.  Tethereal is capable of
+determining that the file is gzipped and handling it appropriately.  $teth_pat
+and $nslookup come from form fields named teth_pat and nslookup, respectively.
+In this case, the subroutine declares $pattern to be "our", so it can be
+accessed by . . .
+<P>
+<P>
+</LI>
+<LI>answer_heading()  This returns a list of html text to be displayed before the
+output from the search tool.
+
+<P>
+</LI>
+<LI>transform_plugin_line() is applied to every line of output from the search
+command.  It should transform its input into a form suitable for display, by
+altering the string itself, not by returning another string.  It should remove
+the newline, at least, and you may want to entirely eliminate lines that are
+extraneous to the analyst.  Search.cgi will take care of escaping &lt; and >, so
+that html tags cannot find their way into the page unescaped.  In the case of
+output that is destined for graphing, each line must begin with a time stamp
+of a specific format:  yyyy/mm/dd hh:mm:ss.  transform_plugin_line() may need
+to transform the timestamp produced by the search tool to fit this format.
+Search.cgi knows to generate a graph when the form element "output_type"
+exists, and has any value other than "html" or "binary".</LI>
+</UL>
+<P>
+<H2><A NAME="ss10.3">10.3 Search Form Details</A>
+</H2>
+
+<P>As mentioned above, build_form_table must return a list of all the fields that
+are to appear in the form.  Some of these fields, the ones unique to your
+form, will need to be specified from scratch, but several functions have been
+provided to define parts of a search form that will frequently appear.
+<P>
+<P>First, let's look at some sample fields.
+<BLOCKQUOTE><CODE>
+<PRE>
+    nslookup => {
+          spacing => "4",
+           param_label => "Host Name Lookup: ",
+           maxlen => "3",
+           param_type => "radio",
+           values => ["Yes", "No"],
+           default_value => "No",
+          }
+</PRE>
+</CODE></BLOCKQUOTE>
+          
+<P>
+<P>This field is named nslookup.  After the form is submitted and evaluated,
+$nslookup will contain the value submitted.  Since it has param_type radio, it
+will appear as a radio button with values Yes and No, after the label Host
+Name Lookup:.  Four spaces will be inserted between nslookup and the previous
+field.  When the form first appears, the No button will be checked.  When the
+form is submitted, only the values Yes and No will be accepted as valid.
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+   
+   teth_pat => {
+            new => "block",
+            required => "oneof",
+            param_label=>" Tethereal search pattern: ",
+            field_size => "70",
+            maxlen => "200",
+            param_type => "string",
+            validity_string => "A-Za-z0-9()\-_ ,.;:$[]&lt;>=\!&amp;",
+          }
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>Because it is of param_type string, the teth_pat field will appear as a text
+input field.  It will be 70 characters wide, but will allow up to 200
+characters to be entered and validated.  Only characters in the
+validity_string will be allowed.  At least one of the fields with required =>
+"oneof" must have a value.  Because it is a new block, it will start a new
+section of the form.
+<P>
+<P>Here is the complete list of meaningful parameters:
+<P>
+<UL>
+<LI>param_type (required) can have values "string", "number", "popup", "radio",
+or "hidden".
+</LI>
+<LI>param_label (optional) will appear to the left of the input field.
+</LI>
+<LI>maxlen (required) is the maximum number of characters in the submitted value.
+</LI>
+<LI>field_size (required for number and string) sets the displayed field width.
+</LI>
+<LI>values (required for radio and popup) sets the permissable values for these
+fields.
+</LI>
+<LI>labels (optional for popup) gives visible names for each of the values in the
+popup menu.
+</LI>
+<LI>validity_string (required for string) lists the acceptable characters.
+</LI>
+<LI>required (optional) can be "yes" if the field must always have a value, or
+"oneof", if at least one of the fields so labelled must have a value.
+</LI>
+<LI>new (optional) can be "line" to put the field on a new line, or "block" to
+put it in a new block.
+</LI>
+<LI>bgcolor (only meaningful with new block) specifies the background color for
+the new block
+</LI>
+<LI>blockname (only meaningful with new block) is the visible heading for the
+block.
+</LI>
+<LI>spacing (optional) inserts the specified number of &amp;nbsp; 
+(non-breaking spaces) before the field.
+</LI>
+<LI>default_value (optional) sets initial value.</LI>
+</UL>
+<P>
+<P>The following functions may be included to create some common blocks of fields:
+<P>
+<UL>
+<LI>choose_host() provides fields to select the sensor site, whether to look up
+the host name or not, and how many lines to limit the output to.  If your tool
+does not support a host name lookup parameter, you may need to duplicate this
+functionality, minus the host name lookup.  Every plugin must supply a "site"
+field.
+</LI>
+<LI>choose_time() allows a range of hours to be specified.  These fields are
+essential for the functioning of search.
+</LI>
+<LI>choose_tcpdump() allows tcpdump-style filters to be specified.  It may be
+useful for other tools that support Berkely packet filters.
+</LI>
+<LI>choose_tcpdum_mods() defines "verbose" and "hexa", to provide options for
+verbosity and hexadecimal output.
+</LI>
+<LI>choose_graph() is very useful if your tool can provide output suitable for
+graphing.
+</LI>
+<LI>choose_binary() tells your tool to write to standard output (-w -) so
+that the results can be merged into a new libpcap dumpfile suitable for
+download.
+</LI>
+<LI>choose_bingraph() provides the two previous options as a single pulldown
+menu.
+</LI>
+</UL>
+<P>
+<P>To summarize, any file with the extension .se in the directory
+IDABENCH_LIB_PLUGIN_PATH will be treated as a IDABench Search plugin.  Links to
+the plugins will appear on every search page.  In fact, each search will be
+search.cgi with the parameter tool=thepluginname in the URL.  Search.cgi will
+run build_form_table() to make a list of form fields and their properties, and
+will then display the form.  When the user submits this form to search.cgi, it
+will use the form table and plugin_validation() to validate the user input.
+If the data are valid, it will run build_search_command() to create processes
+for the data, then read the proper hourly files and pipe them through these
+processes, transforming the output lines using transform_plugin_line() and
+displaying them as html.
+<P>
+<HR>
+<A HREF="IDABench-1.0-11.html">Next</A>
+<A HREF="IDABench-1.0-9.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc10">Contents</A>
+</BODY>
+</HTML>

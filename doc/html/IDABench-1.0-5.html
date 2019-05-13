@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Sensor Installation</TITLE>
+ <LINK HREF="IDABench-1.0-6.html" REL=next>
+ <LINK HREF="IDABench-1.0-4.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc5" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-6.html">Next</A>
+<A HREF="IDABench-1.0-4.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc5">Contents</A>
+<HR>
+<H2><A NAME="sensorinstall"></A> <A NAME="s5">5. Sensor Installation</A></H2>
+
+<H2><A NAME="sensorquick"></A> <A NAME="ss5.1">5.1 Quick install</A>
+</H2>
+
+<P>To rapidly install a sensor, these steps should do the trick, assuming all 
+dependencies are satisfied.
+<P>
+<OL>
+<LI>$ su -</LI>
+<LI><CODE># chdir /tmp</CODE></LI>
+<LI><CODE># tar -zxvf sensor-1.0.tar.gz</CODE></LI>
+<LI><CODE># cd ./sensor-1.0</CODE></LI>
+<LI><CODE># ./install_sensor</CODE></LI>
+<LI>read any errors reported and adjust as necessary, then repeat 4.
+If you are running some form of Linux, the sensor should be monitoring
+interface eth0. <CODE>ps -ef</CODE> should report <CODE>tcpdump</CODE> is running. Other
+operating system/hardware combinations need a different interface name in
+<CODE>sensor.conf</CODE>.  <P> Have a look at <CODE>/var/log/idabench/site0</CODE>. It
+should look like:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+[root@sensorbox7 log]# ls -la /var/log/idabench/site0/
+total 36
+drwxrws---    2 root     idabench       4096 Mar 20 13:28 .
+drwxrws---    3 idabench idabench       4096 Mar 20 13:28 ..
+-rw-rw----    1 root     idabench         14 Mar 20 13:28 sensor.date
+-rw-rw----    1 root     idabench          6 Mar 20 13:28 site0.pid
+-rw-rw----    1 idabench idabench      16384 Mar 20 13:29 tcp.2003032013.gz
+-rw-rw----    1 root     idabench         51 Mar 20 13:28 tcpdump.err
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>On the analyzer:
+</LI>
+<LI>Add a &lt;this site> directory and <CODE>&lt;this site>/site0.ph</CODE> to <CODE>&lt;idabenchroot>/etc/sites/</CODE> if it doesn't exit yet.</LI>
+<LI>Securely copy the analyzer idabench user's ssh public key to the sensor</LI>
+<LI>Create a <CODE>&lt;this site></CODE> directory in <CODE>&lt;idabenchroot>/etc/sites/</CODE> and configure the <CODE>site.ph</CODE> and plugin filters appropriately.</LI>
+</OL>
+
+See the 
+<A HREF="IDABench-1.0-7.html#configanalyzer">Analyzer config</A> section for additional details.
+<P>
+<P>
+<P>
+<H2><A NAME="sensorinstdetails"></A> <A NAME="ss5.2">5.2 More detailed sensor installation</A>
+</H2>
+
+<P>For the best understanding of what goes into an IDABench sensor , we recommend reading
+the scripts and inline comments. Here is an overview of the scripts and what
+the installer does:
+<P>
+<H3>sensor.conf</H3>
+
+<P>This file is read by both the install_sensor and sensor_driver scripts. It 
+contains locations of preferred binaries, sensor-wide parameters, and 
+definitions of each sensor "site". Jump to 
+<A HREF="IDABench-1.0-7.html#configsensor">Sensor config</A> for a field-by-field description.
+<P>
+<H3>sensor_driver.in</H3>
+
+<P>Here's the meat and potatoes(sp?) of an IDABench sensor, the wrapper that starts
+and stops the actual packet capture process and manages the resultant dumpfiles in
+preparation for the analyzer(s)'s retreival. The .in version of sensor_driver 
+is a template used to create the .pl version during install. <CODE>sensor_driver.pl</CODE> 
+is called by the init.d script to start the sensor, and by <CODE>crond(8)</CODE> to restart it hourly.
+<P>
+<P>Sensor_driver.pl requires two commandline parameters, stop/start/restart and
+&lt;sitename(s)>/ALL. For most installations, <CODE>sensor_driver.pl start ALL</CODE> is what
+should be in the crontab. Start and restart are synonymous. In both cases, any 
+existing packet capture processes for the specified "site" is stopped and a new
+one is started. In earlier versions of IDABench, <CODE>sensor_driver.pl</CODE> would call 
+<CODE>stop_logger</CODE>, then <CODE>start_logger</CODE> to accomplish this task. To remove the latencies
+incurred during Perl's runtime compilation of <CODE>start_logger</CODE>, thus possible packet
+loss, these have been incorporated into <CODE>sensor_driver.pl</CODE> as subroutines.
+<P>
+<H3>sensor_init.in</H3>
+
+<P>This is a template used to create the system startup script. The only change
+made to it during install is the SENSOR_PATH line. On Linux and Solaris the 
+<CODE>init.d</CODE> script <CODE>sensor</CODE> is placed in the appropriate location for your system by
+install_sensor and, a symbolic link is created in the <CODE>rc.X</CODE> directories. In 
+FreeBSD, the script is created as <CODE>/usr/local/etc/rc.d/idabench.sh</CODE>
+<P>
+<H3>site0.filter</H3>
+
+<P>See SITEx_FILTER in the Sensor config section.
+<P>
+<H3>install_sensor</H3>
+
+<P>The installation script. It has been tested on various Linux distributions,
+FreeBSD 5.0, and Solaris 8. Here's a summary of its actions:
+<P>
+<OL>
+<LI>Read current PATH and extend it to include other likely program locations.</LI>
+<LI>Use which(1) to locate executable dependencies in the extended path.</LI>
+<LI>Use uname(1) to identify OS.</LI>
+<LI>Read settings from sensor.conf, possibly overriding defaults and 'which'ed paths</LI>
+<LI>Validate program locations.</LI>
+<LI>Create installation target location.</LI>
+<LI>Create user account that will own the packet capture files.</LI>
+<LI>Confirm user home directory. (Solaris users, see the discussion of
+SENSOR_USER_HOME, in 
+<A HREF="IDABench-1.0-7.html#configsensor">Sensor config</A>)</LI>
+<LI>Create a .ssh directory that will ultimately receive the analyzer user's key,
+and set its mode (permissions) to 0700.</LI>
+<LI>Create log directory into which all site specific directories will be placed.</LI>
+<LI>Create and/or update root's crontab to restart the packet capture hourly, if 
+needed.</LI>
+<LI>Copy sensor_init.in to appropriate startup script location, editing SENSOR_PATH
+to reflect the actual installation path.</LI>
+<LI>Run chkconfig, if linux, or create symbolic link in /etc/rc2.d -> sensor if 
+Solaris. This step isn't necessary in FreeBSD.</LI>
+<LI>Copy all of the files in the current directory to the installation path, if not
+currently there.</LI>
+<LI>Set permissions on scripts to 0755</LI>
+<LI>Run the init script.</LI>
+</OL>
+<P>
+<H2><A NAME="uninstallsensor"></A> <A NAME="ss5.3">5.3 Uninstalling</A>
+</H2>
+
+<P>Stopping the sensor is relatively simple, removing it is a bit more involved, 
+as there are a fair number of moving pieces.
+<P>
+<H3>Stopping</H3>
+
+<P>The startup script (possibly installed as <CODE>/etc/init.d/sensor,
+/usr/local/etc/rc.d/idabench.sh, /sbin/init.d/sensor</CODE>, etc.) accepts a
+commandline parameter "stop" which will kill site-specific tcpdump and gzip
+processes, and merge any partial logs, if merging is available.
+<P>
+<PRE>
+# &lt;path to startup scripts>/sensor stop
+</PRE>
+
+On many Linux distributions, you can use the <CODE>/sbin/service</CODE> script:
+<PRE>
+# service sensor stop
+</PRE>
+<P>
+<P>To keep the sensor from restarting, you can either remove that script, or 
+on systems that use symbolic links in <CODE>rc.X</CODE> directories (Linux, Solaris), 
+remove that link.
+<P>
+<P>On most Linuxes, this is fairly straightforward with <CODE>chkconfig(8)</CODE>:
+<PRE>
+# chkconfig --del sensor
+</PRE>
+
+otherwise, you will need to:
+<PRE>
+# rm /etc/rc*.d/S99sensor
+</PRE>
+
+BSD variants do not use these symlinks, and require the script be removed, or
+the execute permission on that script be removed:
+<PRE>
+# chmod -x /usr/local/etc/rc.d/idabench.sh
+</PRE>
+<P>
+<H3>Removing</H3>
+
+<P>
+<P>
+<OL>
+<LI>Stop the sensor and remove the startup scripts as described above.
+</LI>
+<LI>Delete the sensor scripts directory and its contents, the default location is <CODE>/usr/local/idabench/sensor/</CODE>
+</LI>
+<LI>Delete the log directories, archiving their contents first, if desired. The default location is <CODE>/var/log/idabench</CODE>
+</LI>
+<LI>Edit the root user's crontab (<CODE>crontab -e</CODE>), removing the lines inserted by the installer. They are commented to ease identification.
+</LI>
+<LI>Remove the SENSOR_USER and their home directory. <CODE>userdel -r</CODE> should do the trick.
+</LI>
+</OL>
+<P>
+<HR>
+<A HREF="IDABench-1.0-6.html">Next</A>
+<A HREF="IDABench-1.0-4.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc5">Contents</A>
+</BODY>
+</HTML>

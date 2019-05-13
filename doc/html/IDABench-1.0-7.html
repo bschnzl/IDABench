@@ -1,0 +1,349 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Configuration</TITLE>
+ <LINK HREF="IDABench-1.0-8.html" REL=next>
+ <LINK HREF="IDABench-1.0-6.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc7" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-8.html">Next</A>
+<A HREF="IDABench-1.0-6.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc7">Contents</A>
+<HR>
+<H2><A NAME="configuration"></A> <A NAME="s7">7. Configuration</A></H2>
+
+<H2><A NAME="configanalyzer"></A> <A NAME="ss7.1">7.1 Analyzer config</A>
+</H2>
+
+<P>The IDABench analyzer needs to juggle quite a few programs, files, and
+processes around.  As such, configuration can, at first, seem a little
+daunting. The defaults for the primary configuration files, <CODE>idabench.conf</CODE>
+and <CODE>site0.ph</CODE>, should serve well for most single sensor sites.
+<P>
+<H3>idabench.conf</H3>
+
+<P><CODE>idabench.conf</CODE> is the system-wide analyzer configuration file. There are a
+number of variables that are set here and referred to by site-specific options
+later. Locations of key binaries and directories are two examples. Read through
+the comments carefully as you make changes to this file, or there may be
+unanticipated results. Here are a few key settings you may with to modify:
+<P>
+<P>
+<P>
+<UL>
+<LI>$SSH_CMD, $SCP_CMD, $GUNZIP_CMD - these are commented out by default, and
+will be located during installation so that several scripts that need them can
+be modified. You can, at any time, install different versions of these binaries
+and specify their preferred locations here, overriding what was found during installation.
+
+<P>
+</LI>
+<LI>$IDABENCH_PATH - The location where the IDABench files and directories
+are located. This should be specified during installation and not modified
+afterwards. Popular locations are /usr/local/idabench, /opt/idabench, home.
+
+<P>
+</LI>
+<LI>$IDABENCH_HTTP_PATH - The location where the website hierarchy for IDABench
+should be maintained. Subdirectories will be created here for images, cgi
+scripts, global and site-specific html files, etc. 
+
+<P>
+</LI>
+<LI>$IDABENCH_USER - The IDABENCH_USER is the account used to retrieve data from the sensor(s), 
+build web pages, and remove old files from the sensor(s). This user will 
+have a crontab built for them by the install_analyzer script that runs
+fetchem.pl, statistics.pl and cleanup.pl.
+
+<P>
+</LI>
+<LI>$IDABENCH_WEB_USER - The webserver configuration file (httpd.conf) should say
+something like: "User apache". This is the account name we need here so that
+permissions can be set properly on spool directories.
+
+<P>
+</LI>
+<LI>$IDABENCH_TEMP_FILE_LIFESPAN - Number of days after which to delete query
+graphs and merged query files.
+</LI>
+</UL>
+<P>The following are relative web paths to IDABench components. If you make any 
+changes here after installation you should either re-run install_analyzer or
+manually modify the webserver configuration and cgi-bin files. In other words:
+make any changes you want before running install_analyzer, then don't touch 
+them afterwards.
+<P>
+<P>
+<P>
+<UL>
+<LI>$IDABENCH_RELHTTP_PATH - Relative http path. What the base path is on the
+website. If your webserver is foo.bar.net, the IDABench webpages will will be
+accessible at http://foo.bar.net/$IDABENCH_RELHTTP_PATH
+</LI>
+<LI>$IDABENCH_RELCGI_PATH - Relative path to the cgi scripts. See above.
+</LI>
+<LI>$IDABENCH_REL_WEB_PAGES_ROOT - Where the hourly web pages will be located.
+Subdirectories for each site will go in here.
+</LI>
+<LI>$IDABENCH_WEB_SPOOL_URL - The location of spooled graphic and binary
+results from searches.
+</LI>
+</UL>
+<P>
+<H3>Analyzer site configuration</H3>
+
+<P>A single IDABench analyzer can service many sensors. Each sensor instance (site)
+is configured independently in its own subdirectory.  This site-specific subdir
+is where you decide which plugins will be enabled and how they are individually
+configured for each site. The file <CODE>site.ph</CODE> and plugin-specific subdirectories
+are where this takes place.
+<P>
+<H3>site.ph</H3>
+
+<P>The site.ph file is the primary configuration file for each site. It defines
+sensor location, user, cleanup timing parameters, etc. As with the global
+configuration file idabench.conf, the inline documentation is verbose; much of
+this section is directly from those comments. If you are installing a
+single-host system, no adjustments should be necessary.
+<P>
+<UL>
+<LI>$SITE - SITE is the name that the analyzer will use to refer to this source of
+packet capture data. It will be used to create subdirectories under the 
+analyzer directory and the web pages that IDABench creates to display the
+data. It need not be the same as the sensor SITEx_NAME, but definitely should
+be the same as this file's parent directory.
+</LI>
+<LI>$SENSOR_USER - The account name that is used on the sensor for storage of the packet capture
+files. The analyzer will use this account name to ssh and scp files from the
+sensor.
+</LI>
+<LI>$SENSOR - The name or address of the machine on which the idabench sensor is located. The
+analyzer fetches the raw data from the sensor hourly via crond. If you use a
+hostname, be certain that the analyzer can resolve it.
+</LI>
+<LI>$SENSOR_DIR - The directory on your sensor in which the raw sensor data is stored. This is 
+NOT the analyzer storage path.
+</LI>
+<LI>$SITE_FORM_LABEL - Set the following variable to the name you want to see for this site in
+cgi forms. If you leave it as $SITE, then the SITE parameter above will be
+used. This field allow you to have very long, descriptive names in the
+site configuration files, while still taking it easy on the analysts eye.
+</LI>
+<LI>$HOSTSCAN_THRESHOLD, PORTSCAN_THRESHOLD - The xSCAN_THRESHOLD settings are the number of different destination
+addressess or ports that a "foreign" machine can contact before it is listed
+as a possible scanner.
+</LI>
+<LI>$resolve_names - Should we attempt to resolve addresses to names in the hourly webpage output?
+Please note that this can be a tipoff to an attacker that you are running
+some kind of hourly logging process, should they be monitoring their incoming
+nameserver traffic. Additionally, resolving addresses can take quite a long
+time, especially if your analyzer is not connected to the outside world!
+</LI>
+<LI>$CLEAN_TIME - The number of days you want to keep the raw data files on your sensor's disks
+before the cleanup.pl script removes them. It depends on the sizes of your
+files, the amount of sensor disk space, and your personal preference.
+</LI>
+</UL>
+<P>
+<P>The following settings are relative to others set throughout the system and
+IDABench configuration files. The vast majority of installations will probably
+not need to change anything from here down, and it is not advised that you do
+so:
+<P>
+<UL>
+<LI>ANALYZER_DIR - The directory on your analyzer machine into which the raw sensor data is 
+fetched for this particular site.
+</LI>
+<LI>OUTPUT_WEB_DIR - The directory where web pages are created which hold the filtered data for this
+one site.  
+</LI>
+<LI>URL_OUTPUT_DIR - The relative path from the DocumentRoot variable defined in the Apache 
+configuration files to the actual html files for this site.
+</LI>
+<LI>SEDEFAULT - Which search plugin would you like selected by default when first opening a
+new search window? This is optional and will default to the first appearing
+alphabetically in the site's config directory.
+</LI>
+</UL>
+<P>
+<H3>Configuration subdirectories</H3>
+
+<P>Site configuration subdirectories contain filters for each plugin you wish to
+use for that site. For details on configuring plugin-specific filter files, see
+the Hourly plugin filters section.
+<P>
+<P>During hourly processing, a separate child process is forked for each file in 
+the plugins subdirectories, thus a multiprocessor system yields big payoffs in 
+the analysis of large capture files.
+<P>
+<P>For example:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+  --etc
+    |-- ists            First site-specific subdirectory 
+    |   |-- findscan            findscan plugin specific dir
+    |   |   `-- filter.getall           filter for this plugin
+    |   |-- ngrep               ngrep plugin specific dir
+    |   |   |-- rule1                   ngrep filter
+    |   |   |-- rule2                   ngrep filter
+    |   |   `-- rule3                   ngrep filter
+    |   |-- site.ph             site-specific parameters, ie. sensor address
+    |   `-- tcpdump             tcpdump filter files dir
+    |       `-- generic.filter  tcpdump filters any filename is acceptable. 
+    |       `-- badweb          "
+    |       `-- fragmentation   "
+    |-- lab12           Second site-specific subdirectory 
+        |-- ngrep               ngrep plugin specific dir
+        |   |-- testcondition1          ngrep filter
+        |   `-- anomalies               ngrep filter
+        `-- site.ph             site-specific parameters, ie. sensor address
+    
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>
+<P>Here, we have two sites configured to use different plugins and associated
+filters. The first, ists, uses findscan, tcpdump and ngrep, whereas lab12 only
+has two ngrep filter files. Note that the filenames are not dictated, merely
+their presence in an directory with the name of the plugin.
+<P>
+<P>As new plugins are developed and installed, a site can be configured to use the 
+new capability by adding a directory for the plugin and placing the appropriate
+filter(s) therein.
+<P>
+<H2><A NAME="configsensor"></A> <A NAME="ss7.2">7.2 Sensor config</A>
+</H2>
+
+<P>There are two primary configuration files for an IDABench sensor, sensor.conf
+and a filter file, site0.filter by default.
+<P>
+<P>
+<P>
+<H3>sensor.conf</H3>
+
+<P><CODE>sensor.conf</CODE> contains most configuration parameters for up to 10 sensor
+"sites", each with its own packet capture parameters, site name and
+directories. The fields are:
+<P>
+<UL>
+<LI><P>
+</LI>
+<LI>SENSOR_USER -  The user account for the transfer of data between the sensor(s)
+and analyzer. If it doesn't exist, it will be created during installation. 
+
+<P>
+</LI>
+<LI>SENSOR_USER_HOME - Home directory of the SENSOR_USER. If this is not specified, it is
+assumed to be /home/$SENSOR_USER. Solaris users, take note: this should probably be 
+/export/home/&lt;SENSOR_USER> for you. If your system does a clean job of creating
+home directories, you should NOT uncomment this.
+
+<P>
+</LI>
+<LI>LOGDIR - Parent path to all site specific packet log directories. Subdirectories
+will be created under this for each site that is defined below. The SENSOR_USER
+owns this directory and subdirectories below it so that they can, via ssh/scp
+from the analyzer, retrieve and cleanup binary dumpfiles.
+
+<P>
+</LI>
+<LI>SENSOR_PATH - Where to install the sensor files. This value will be used to 
+modify the SENSOR_PATH entries in the sensor init script as well as the 
+sensor_driver. This will override the default of /usr/local/idabench/sensor 
+when running the installer.
+
+<P>
+</LI>
+<LI>MERGER - The installer will try to locate mergecap or tcpslice to enable merging
+of partial dumpfiles. If defined here, this value will override what is found in
+the path.If not defined here, or detected by the install_sensor script, the 
+logbits will remain on the sensor until removed by the analyzer's "cleanup.pl".
+See PARTIAL CAPTURES in README.sensor.
+
+<P>
+</LI>
+<LI>TZ - We need various timestamps all over the place. Set this according to your
+preferences. If you have sensors crossing time zones, you might need GMT(UTC)
+to simplify correlations. Otherwise, localtime (LOC) is generally convenient.
+
+<P>
+</LI>
+<LI>Other binaries - During installation, entries in sensor.conf override what is 
+found in the path. As such, you should only uncomment the program paths and 
+make changes to them if you have multiple versions of a program and are certain
+of which one you prefer.
+
+<P>
+</LI>
+<LI>Site definitions - A "site" is a running instance of tcpdump with its own unique
+commandline parameters, logging to its own subdirectory. The analyzer(s) will 
+refer to these sites by name when retrieving dumpfiles.
+
+<P>There are three entries per site definition. In each one, replace the "x" below
+with a site-specific digit 0-9:
+<P>
+<P>
+<OL>
+<LI>SITEx_NAME - The name that is used to refer to this sniffer instance. A
+subdirectory to LOGDIR will be created with this name to store its dumpfiles. A
+sitename can be any combination of alphanumeric characters, but should follow
+file naming conventions.
+
+<P>
+</LI>
+<LI>SITEx_PROGPAR - Additional parameters that will be passed to tcpdump. These
+should include, at a minimum, -i &lt;interface> and -s &lt;snaplen>. Tcpdump's default
+snaplen is 68 bytes, which may not be large enough to feed content-aware
+analysis programs. Note that storage requirements will increase significantly
+with a large snaplen. Multiple sites can certainly use the same interface.
+<P>If you have modified sensor_driver sufficiently to use an
+alternate pcap-based sniffer, pass any required params to it here.
+<P>
+<P>
+</LI>
+<LI>SITEx_FILTER - The file containing bpf filters to be applied during packet 
+capture. These should be kept simple, as they are compiled by tcpdump at runtime
+and complex filters may introduce latencies into the sensor restart chain, 
+causing packet loss. You may use the same value here for all sites, if you
+choose.
+</LI>
+</OL>
+<P>
+</LI>
+</UL>
+<P>
+<P>
+<P>
+<H3>sensor filter file</H3>
+
+<P><CODE>tcpdump(8)</CODE> will read its capture filter from this file. Any network
+traffic that does not match the filter defined there will not be recorded, and
+will not be available for scrutiny by the analyzer(s). In cases where you have
+multiple analyzers evaluating different portions of the data stream, you may
+wish to configure multiple sites on the same sensor, each using their own
+filter file to distribute the analyzers' loads. For example:
+<P>
+<P>
+<P>
+<UL>
+<LI>web.sensor.site - (tcp and (port 80 or port 443)) or host www.mysite.net
+</LI>
+<LI>bgp.site.filter - (tcp and port bgp)
+</LI>
+<LI>everythingelse.site - ip and !(host www.mysite.net) and !(tcp and (port bgp or port 80 or port 443)
+</LI>
+</UL>
+<P>For most sites, however, the default filter should be sufficient, simply:
+<P>
+<UL>
+<LI>site0.filter - ip</LI>
+</UL>
+<P>
+<HR>
+<A HREF="IDABench-1.0-8.html">Next</A>
+<A HREF="IDABench-1.0-6.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc7">Contents</A>
+</BODY>
+</HTML>

@@ -1,0 +1,193 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# run_stats.pl -           idabench version 1.0
+#
+# Script to find the appropriate raw tcpdump file directory based upon 
+# the calling parameterss and run the statistics_glob.pl script to cycle
+# through those raw files and generate a page of statistical information.
+#  
+# Set up some variables.
+#
+use Getopt::Long;
+use POSIX qw(strftime);
+use Time::Local;
+#
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+my $pluginh = "$IDABENCH_LIB_PLUGIN_PATH/plugins.ph";
+unless (my $return = do $pluginh ){
+   die("Unable to parse configuration file $pluginh:\n$@\n") if $@;
+   warn "Unable to determine any plugin paths. No analysis will be done.\n" unless $return;
+}
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local our $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+#
+$snifdate = "";
+$yr_format = "a4a2a2";
+#
+sub usage {
+        print "Usage: run_daily_stats.pl -raw -l Site {-debug} {-d YYYYMMDDHH}.\n";
+	exit 2;
+}
+#
+#	Parse the parameters.
+#
+#
+&GetOptions("debug", \$debug, "d:s", \$snifdate, "l=s", \$Site);
+#
+#  Check parameter validity.
+#
+$sdlen = length($snifdate);
+if (("$Site" eq "") or (($sdlen > 0) and ($sdlen != 8) ))
+{
+	usage();
+}
+##
+#
+#  Rid ourselves of standard output and error to prevent tons of mail messages
+#  from cron.
+#
+@lvls = split(/\//,$0);				# Split path
+($call, $suf) = split(/\./, $lvls[$#lvls]);	# Split call.suffix
+$LOG_FILE = $debug ? "/tmp/$call.log" : "/dev/null";
+open(STDOUT, ">>$LOG_FILE");
+select STDOUT; $| = 1;
+open(STDERR, ">&STDOUT");
+select STDERR; $| = 1;              # make unbuffered
+
+#
+# Writer a marker to the log file.
+#
+$marker=strftime("%c", localtime(time));
+print STDOUT $marker;
+foreach $param ($0, @ARGV) {
+   printf " %s", $param;
+}
+print STDOUT "\n";
+#
+# Once the Site is identified from the command line,
+# load the needed external Parameters.
+#
+do "$IDABENCH_SITE_PATH/${Site}/site.ph";
+
+#
+#
+# If we have been called with a SNIFDATE parameter, set up the $subdir variable,
+# else assume yesterday.
+#
+if ($snifdate eq "") {
+#
+# Fetch current time.
+#
+   @T = localtime(time - 24*60*60);
+   $snifdate = strftime("%Y%m%d", @T);
+}
+#
+#  Unpack the "snifdate" into its useful components.
+#
+($year, $mon, $mday) = unpack($yr_format, $snifdate);
+#
+# Compensate for the way Perl stores months and years.
+$mon -= 1; 
+$year -= 1900;
+#
+# Convert our snif date back to time format.
+#
+$snif_time = timelocal(0, 0, 0, $mday, $mon, $year);
+@snif_date = localtime($snif_time);
+#
+$subdir = strftime("%b%d", @snif_date);
+$output_dir = "${OUTPUT_WEB_DIR}/$subdir";
+$dst_dir = "$ANALYZER_DIR/$subdir";
+#
+# Predict the previous day and next day for html links.
+#
+$last_day = strftime("%Y%m%d", localtime($snif_time - 86400));
+$last_day_dir = strftime("%b%d", localtime($snif_time - 86400));
+$last_day_dir = "../$last_day_dir";
+#
+$next_day = strftime("%Y%m%d", localtime($snif_time + 86400));
+$next_day_dir = strftime("%b%d", localtime($snif_time + 86400));
+$next_day_dir = "../$next_day_dir";
+
+print STDOUT "Last Day = $last_day, Next Day = $next_day\n";
+print STDOUT "Last Day/dir = $last_day_dir, Next Day/dir = $next_day_dir\n";
+#
+# Run script to read the tcpdump binary files and produce a bit of statistics
+# for this day.
+#
+$stats_output_text = "${output_dir}/stats.${snifdate}.txt";
+$stats_output_html = "${output_dir}/stats.${snifdate}.html";
+$prev_day_file = "${last_day_dir}/stats.${last_day}.html";
+$next_day_file = "${next_day_dir}/stats.${next_day}.html";
+#
+# Cycle through all the raw gzipped tcpdump files in the directory
+# specified by the calling parameter and accumulate the statistics.
+#
+$stat_cmd = "perl $IDABENCH_BIN_PATH/statistics_glob.pl $dst_dir $stats_output_text";
+print STDOUT "Executing command: $stat_cmd\n";
+(system ("$stat_cmd") == 0) or die ("Unable to execute: $stat_cmd.");
+#
+#
+#
+open(HTMLFILE, ">$stats_output_html");
+#
+# Write out the HTML header information to the html file.
+#
+print HTMLFILE <<"EOF";
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Final//EN">
+<HTML>
+<HEAD>
+<TITLE>$subdir Traffic Statistics for $SITE.</TITLE>
+</HEAD>
+<BODY BGCOLOR='FFFFE1''>
+<H3>Site: $SITE - Date: $subdir.</H3>
+<PRE>
+EOF
+#
+# Copy the text generated by statistics_glob.pl in the HTML file.
+#
+open(TXTFILE, "<$stats_output_text");
+while (<TXTFILE>) {
+   print HTMLFILE $_;
+}
+close(TXTFILE);
+#
+# Append the date information and navigation bar to the end of the HTML page.
+#
+print HTMLFILE <<"EOF";
+</PRE>
+<H3>Site: $SITE - Date: $subdir.</H3>
+<HR>
+<TABLE CELLSPACING="0" CELLPADDING="0">
+<TR>
+<TD ALIGN=CENTER VALIGN=MIDDLE><A HREF="$prev_day_file"><IMG SRC="/images/navbars/1.png" WIDTH="90" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A><IMG SRC="/images/navbars/2.png" WIDTH="110" HEIGHT="20" HSPACE="0" VSPACE="0"><A HREF="/tcpdump_results/index.html" TARGET="_top"><IMG SRC="/images/navbars/3.png" WIDTH="50" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A><IMG SRC="/images/navbars/2.png" WIDTH="110" HEIGHT="20" HSPACE="0" VSPACE="0"><A HREF="$next_day_file"><IMG SRC="/images/navbars/5.png" WIDTH="90" HEIGHT="20" BORDER="0" HSPACE="0" VSPACE="0"></A></TD></TR>
+</TABLE>
+
+</BODY>
+</HTML>
+EOF
+close(HTMLFILE);
+#
+printf STDOUT "%s : %s\n", strftime("%c", localtime(time)), "$0 completed.";

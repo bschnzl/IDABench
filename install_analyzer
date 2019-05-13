@@ -1,0 +1,956 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# A script to begin installation of a idabench analyzer.
+#
+# Since the file idabench.conf is used both during installation and operation
+# of the analyzer, its location is important.  This script expects to find
+# idabench.conf in ./etc.  During installation it will be copied, if necessary,
+# to $IDABENCH_PATH/etc.  Before installing, edit idabench.conf.
+# At a minimum, set values for
+#  $IDABENCH_PATH, the base directory of the idabench files,
+#  $IDABENCH_HTTP_PATH, the base directory of files the web server will access,
+#  $IDABENCH_USER, the user name under which idabench scripts will be run,
+#  $IDABENCH_WEB_USER, the user name under which cgi scripts will be run,
+#  $IDABENCH_SITE_DEFAULT, the name of the sensor site which will appear as a
+#    default on web pages.  The script will configure a directory tree for this
+#    sensor, which you can use as a template for additional sensors.
+#
+# The other path variables can be altered if desired, but their default values,
+# defined relative to $IDABENCH_PATH, and $IDABENCH_HTTP_PATH, should work.
+#
+##############################################################################
+
+use IO::File;
+use File::Temp "tempfile";
+use Getopt::Std;
+
+our @cgi_files = ("compose_IR.cgi", "kill_group.cgi", "lookup.cgi",
+    "search.cgi", "tools.cgi", "whois.cgi", "indexheader.cgi");
+    
+our @pl_files = ("cleanup.pl", "find_scan.pl", "pat_search.pl",
+    "run_daily_stats.pl", "statistics_glob.pl", "fetchem.pl",
+    "tcp_slice_dump.pl", "obfuscate.pl", "print_stats.pl", 
+    "sort_and_resolve.pl", "statistics.pl");
+    
+our @ph_files = ("findscan.ph", "ngrep.ph", "tcpdump.ph");
+
+our @se_files = ("ngrep.se", "tcpdump.se", "tethereal.se");
+
+our @html_files = ("idabench.html", "indexfooter.html", "cgi-bin/gnuplot.seed");
+
+our @other_libs = ("pcaptestfile", "statistics.ph");
+
+our @other_files = ("idabench.terms");
+
+# Build up a list of things that need doing.
+our @needtos = ();
+
+{
+    my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime;
+    our $thisdate = sprintf("%02d/%02d/%04d %02d:%02d:%02d",
+    	    	    $mon + 1, $mday, $year + 1900, $hour, $min, $sec);
+}
+
+print "##### IDABench analyzer installer script $thisdate #####\n";
+
+umask 022;
+
+die "IDABench installer must be run as root.\n" if ($> != 0);
+
+#
+# Check for perl modules that will be needed by various scripts
+#
+my @needed_modules = ("Getopt::Long", "POSIX", "Time::Local",  "Socket", "IO::Handle",
+    "File::Basename", "File::Temp", "Cwd", "DB_File", "Digest::MD5", "CGI" );
+    
+print "# Checking for necessary Perl modules\n";
+    
+my @not_got_modules = ();
+foreach (@needed_modules)
+{
+    push @not_got_modules, $_ if(! eval("require $_"));
+}
+
+my $num_missing = scalar(@not_got_modules);
+if($num_missing)
+{
+    print "The following perl module", ($num_missing > 1) ? "s" : "", " must be installed for all the ";
+    print "analyzer scripts to function properly.\n";
+    foreach (@not_got_modules) { print "$_ "; }
+    print "\n\n";
+    my $quant = ($num_missing > 1) ? "these modules" : "this module";
+    die "Please install $quant, then re-run this installer.\n";
+}
+
+#if(!eval("require Compress::Zlib"))
+#{
+#    my $cant = "Handling of gzipped files can be improved by installing Perl module Compress::Zlib.";
+#    # print "\n$cant\n";
+#    push @needtos, $cant;
+#}
+
+our $confname = "idabench.conf";
+
+$ENV{PATH} = "$ENV{PATH}:/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin:/usr/local/bin:/usr/ucb";
+
+#
+# Temporarily redirect STDERR, so user won't see complaints about missing tools.
+# It is not necessarily an error if "which" can't find them, if they are defined
+# in idabench.conf.
+#
+open(OLDERR, ">&STDERR");
+open(STDERR, "> /dev/null");
+
+# Now define the tools we expect to need. These may be overridden in 
+# etc/idabench.conf
+#
+$SSH_CMD = `which ssh`;
+$SCP_CMD = `which scp`;
+$GUNZIP_CMD = `which gunzip`;
+
+$TCPDUMP_PLGBIN = `which tcpdump`;
+$TCPSLICE_PLGBIN = `which tcpslice`;
+$MERGECAP_PLGBIN = `which mergecap`;
+$NGREP_PLGBIN = `which ngrep`;
+$GNUPLOT_PLGBIN = `which gnuplot`;
+$TETHEREAL_PLGBIN = `which tshark`;
+$SELINUX_BIN = `which restorecon`;
+$FW_BIN = `which iptables`;
+
+close(STDERR);
+open(STDERR, ">&OLDERR");
+close(OLDERR);
+
+print "# Checking $confname validity\n";
+
+unless (my $return = do "./etc/$confname")
+{
+    die "\nInstaller is unable to parse $confname:\n$@\n"
+	if $@;
+    die "\nInstaller encountered an error in $confname $!\n"
+	unless $return;
+    die "\nError encountered while executing $confname\n";
+}
+
+die "\n$confname must define the idabench directory \$IDABENCH_PATH.\n"
+    if(!($IDABENCH_PATH));
+
+die "\n$confname must define the idabench user \$IDABENCH_USER.\n"
+    if(!($IDABENCH_USER));
+
+#
+# Look for all the global variables ending in _CMD.
+# These should define executables.  Any that aren't executable,
+# put on the @non_exec list.
+# Note: this should really test whether $IDABENCH_USER can execute.
+#
+
+print "# Checking for necessary tools\n";
+
+my @non_exec;
+our $tools_lines = "";
+
+foreach (keys %::)
+{
+    next if (!/.*_CMD$/);
+    local $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+    push @non_exec, $_ if (!(-x $$sym));
+    # Build up lines to insert into .pl and .cgi files
+    $tools_lines .= "our \$$_ = \"$$sym\";\n";
+}
+
+if(scalar(@non_exec))
+{
+    print "\nBefore installing, please be sure the following tools in \n$confname represent executable files:\n";
+    foreach (@non_exec)
+    {
+        local $sym = $main::{$_};
+    	print "\$$_\t";
+	print "path: $$sym\n" if(length($$sym));
+	print "no path defined\n" if(!length($$sym));
+    }
+    die "Installation terminated\n";
+}
+
+my @missing_source;
+
+#
+# Determine that the required files are present in the source directories
+#
+
+print "# Finding required source files\n";
+
+foreach (@cgi_files)
+{
+    my $needit = "./var/www/cgi-bin/$_.in";
+    push @missing_source, $needit if(! -e $needit);
+}
+
+foreach (@pl_files)
+{
+    my $needit = "./bin/$_.in";
+    push @missing_source, $needit if(! -e $needit);
+}
+
+foreach (@ph_files)
+{
+    my $needit = "./lib/plugins/$_";
+    push @missing_source, $needit if(! -e $needit);
+}
+
+foreach (@se_files)
+{
+    my $needit = "./lib/plugins/$_";
+    push @missing_source, $needit if(! -e $needit);
+}
+ 
+foreach (@other_libs)
+{
+    my $needit = "./lib/$_";
+    push @missing_source, $needit if(! -e $needit);
+} 
+
+foreach (@other_files)
+{
+    my $needit = "./$_";
+    push @missing_source, $needit if(! -e $needit);
+}
+    
+if(scalar(@missing_source))
+{
+    print "\nThe following source files are required, but could not be found.\n";
+    foreach (@missing_source) { print "$_\n"; }
+    die "Installation terminated\n";
+}
+
+#
+# Verify existence, or create, idabench user
+#
+
+print "# Verifying idabench user\n";
+
+@idabench_pwnam = getpwnam($IDABENCH_USER);
+@idabench_usergrp = @idabench_pwnam[2,3];
+our @root_usergrp = (getpwnam(root))[2,3];
+if(!($idabench_usergrp[0]))
+{
+    # Must create idabench user
+    system("useradd -m $IDABENCH_USER");
+    @idabench_pwnam = getpwnam($IDABENCH_USER);
+    @idabench_usergrp = @idabench_pwnam[2,3];
+}
+
+print "# Verifying idabench path\n";
+
+if(! -e $IDABENCH_PATH)
+{
+    print "Attempting to create directory $IDABENCH_PATH\n";
+    die "\nCould not create directory $IDABENCH_PATH\n"
+    	unless((system "mkdir -p $IDABENCH_PATH") == 0);
+}
+
+die "\n$IDABENCH_PATH is not a directory!\n" if(! -d $IDABENCH_PATH);
+
+chown @root_usergrp, $IDABENCH_PATH;
+    
+print "# Verifying web user\n";
+
+our @web_group = (getpwnam($IDABENCH_WEB_USER))[2,3];
+if(!($web_group[0]))
+{
+    # Must create idabench web user
+    system("useradd $IDABENCH_WEB_USER");
+    @web_group = (getpwnam($IDABENCH_WEB_USER))[2,3];
+}
+
+if(! -e $IDABENCH_HTTP_PATH)
+{
+    print "Attempting to create directory $IDABENCH_HTTP_PATH\n";
+    die "\nCould not create directory $IDABENCH_HTTP_PATH\n"
+    	unless((system "mkdir -p $IDABENCH_HTTP_PATH") == 0);
+}
+
+die "\n$IDABENCH_HTTP_PATH is not a directory!\n" if(! -d $IDABENCH_HTTP_PATH);
+
+print "# Finding images directory\n";
+
+if(! -e "$IDABENCH_HTTP_PATH/images")
+{
+    print "Attempting to create directory $IDABENCH_HTTP_PATH/images\n";
+    die "\nCould not create directory $IDABENCH_PATH/images\n"
+    	unless((system "mkdir -p $IDABENCH_PATH/images") == 0);
+}
+
+die "\n$IDABENCH_HTTP_PATH is not a directory!\n" if(! -d $IDABENCH_HTTP_PATH);
+
+print "# Checking for idabench user directory\n";
+
+our $idabench_home_dir = $idabench_pwnam[7];
+
+die "\nHome directory for $IDABENCH_USER must exist.\n"
+    if((! -e $idabench_home_dir) or (! -d $idabench_home_dir));
+
+print "# Checking for public key\n";
+
+create_key_pair() if(! -e "$idabench_home_dir/.ssh/id_ed25519");
+
+#
+# Attempt to create directories
+#
+
+print "# Creating directories\n";
+
+foreach(
+    $IDABENCH_BIN_PATH,
+    $IDABENCH_SITE_PATH,
+    "$IDABENCH_SITE_PATH/$IDABENCH_SITE_DEFAULT",
+    $IDABENCH_SCRATCH_PATH,
+    $IDABENCH_LOG_PATH,
+    $IDABENCH_LIB_PLUGIN_PATH,
+    $IDABENCH_CGI_PATH,
+    $IDABENCH_RAW_DATA_PATH,
+    $IDABENCH_WEB_PAGES_PATH,
+    "$IDABENCH_WEB_PAGES_PATH/$IDABENCH_SITE_DEFAULT",
+    $IDABENCH_WEB_SPOOL_LOCAL)
+{
+    die "\nUnable to create directory $_.\n" if(system("mkdir -p -v $_"));
+    chown(@root_usergrp, $_);
+}
+
+print "# Setting directory ownership\n";
+
+chown @idabench_usergrp, $IDABENCH_RAW_DATA_PATH or
+    die "\nCould not transfer ownership of $IDABENCH_RAW_DATA_PATH to $IDABENCH_USER.\n";
+chown @idabench_usergrp, $IDABENCH_SCRATCH_PATH or
+    die "\nCould not transfer ownership of $IDABENCH_SCRATCH_PATH to $IDABENCH_USER.\n";
+chown @idabench_usergrp, $IDABENCH_WEB_PAGES_PATH or
+    die "\nCould not transfer ownership of $IDABENCH_WEB_PAGES_PATH to $IDABENCH_USER.\n";
+chown @idabench_usergrp, $IDABENCH_LOG_PATH or
+    die "\nCould not transfer ownership of $IDABENCH_LOG_PATH to $IDABENCH_USER.\n";
+chown @idabench_usergrp, "$IDABENCH_WEB_PAGES_PATH/$IDABENCH_SITE_DEFAULT" or
+    die "\nCould not transfer ownership of $IDABENCH_WEB_PAGES_PATH/$IDABENCH_SITE_DEFAULT to $IDABENCH_USER.\n";
+chown (@web_group, $IDABENCH_WEB_SPOOL_LOCAL) or
+    die "\nCould not transfer ownership of $IDABENCH_WEB_SPOOL_LOCAL to $IDABENCH_WEB_USER: $!\n";
+
+print "# Moving files\n";
+
+foreach (@cgi_files) { 
+    move_subst_path($_, "./var/www/cgi-bin", $IDABENCH_CGI_PATH);
+}
+
+foreach (@pl_files) { move_subst_path($_, "./bin", $IDABENCH_BIN_PATH); }
+
+my $cwd = `pwd`;
+chomp $cwd;
+
+# Try not to copy a file onto itself
+if("$cwd/lib/plugins" ne $IDABENCH_LIB_PLUGIN_PATH)
+{
+    foreach (@other_libs) { move_path($_, "./lib", $IDABENCH_LIB_PATH); }
+    foreach (@other_files) { move_path($_, "./", $IDABENCH_PATH); }
+}
+
+foreach (@html_files) { move_subst_relpath($_, "./var/www", $IDABENCH_HTTP_PATH); }
+
+#
+# Make a hard link to idabench.html for index.html
+#
+unlink "$IDABENCH_HTTP_PATH/index.html";	# in case it exists
+link "$IDABENCH_HTTP_PATH/idabench.html", "$IDABENCH_HTTP_PATH/index.html" or
+    die "Installer unable to create link from $IDABENCH_HTTP_PATH/index.html to $IDABENCH_HTTP_PATH/idabench.html\n";
+    
+#
+# Copy doc and image files
+#
+
+copy_path_recursive("./var/www/images", $IDABENCH_HTTP_PATH);
+copy_path_recursive("./doc", $IDABENCH_PATH);
+
+our %protected_files;
+our @protected_found_files = ();
+
+#
+# Copy configuration files
+#
+
+copy_recursively_with_protection("./etc", "$IDABENCH_PATH/etc", "idabench.conf", "site.ph");
+
+#
+# Copy .ph and .se files
+#
+
+copy_recursively_with_protection("./lib/plugins", $IDABENCH_LIB_PLUGIN_PATH, "plugins.ph");
+
+foreach (@protected_found_files)
+{
+    my $aline = "Exising configuration file $_ was NOT overwritten.\n";
+    $aline .= "If you wish to use the new file, copy $_.new into $_.";
+    push @needtos, $aline;
+}
+
+#
+# Edit httpd.conf
+#
+print "# Attempting to edit httpd.conf\n";
+
+mod_httpd();
+print "\n";
+
+#
+# Set up cron jobs, if possible
+#
+print "# Attempting to create cron jobs";
+update_idabench_cron();
+print "\n";
+
+#
+#  SELINUX adjustments needed?
+#
+
+chomp $SELINUX_BIN;
+if(-x $SELINUX_BIN)
+{
+    adj_selinux()
+} else {
+    print "SELinux does not appear to be installed - Skipping\n";
+    print "Crossing our fingers - You should be OK!!!\n";
+}
+
+#
+#  Firewall Adjustments needed?
+#
+
+chomp $FW_BIN;
+if(-x $FW_BIN)
+{
+    adj_fw()
+} else {
+    print "IPTables does not appear to be installed - Skipping\n";
+    print "Crossing our fingers - You should be OK!!! :P \n";
+}
+
+
+print "\n######################################################################";
+print "\n######### Summary of remaining manual installation steps #############\n";
+foreach (@needtos)
+{
+    print "\n$_\n";
+}
+print "\n######################################################################";
+print "\n######################################################################\n";
+
+#
+# Adjust SELINUX to allow our CGI scripts - IF installed
+#
+
+exit 0;
+
+##############################################################################
+#                              Subroutines
+##############################################################################
+
+chown @idabench_usergrp, $IDABENCH_PATH or die "\nCould not transfer ownership of $IDABENCH_PATH to $IDABENCH_USER.\n";
+#
+# Attempt to create public/private key pair
+#
+sub create_key_pair
+{
+    # Temporarily suppress stderr to avoid confusion of error messages.
+    open(OLDERR, ">&STDERR");
+    open(STDERR, "> /dev/null");
+
+    my $keygen_app = `which ssh-keygen`;
+    chomp $keygen_app;
+    
+    my $have_keygen = -x $keygen_app;
+    
+    close(STDERR);
+    open(STDERR, ">&OLDERR");
+    close(OLDERR);
+    
+    if(!$have_keygen)
+    {
+    	my $cant = "Can't find ssh-keygen, so unable to create key pair for $IDABENCH_USER.\n";
+	$cant .= "Please perform this step manually.";
+	
+    	print "\n$cant\n";
+	push @needtos, $cant;
+	return;
+    }
+    
+    #
+    # Fork a child process to run as idabench user
+    #
+    if ($childpid = open(CHILD, "-|"))
+    {
+    	# This is the parent.  Just print output from child till it closes.
+	while (<CHILD>) {
+	     print $_;
+	}
+	close(CHILD);
+	if(! -e "$idabench_home_dir/.ssh/id_ed25519")
+	{
+	    my $cant = "Attempt to create key pair failed.\nPlease perform this step manually.";
+    	    print "\n$cant\n";
+	    push @needtos, $cant;
+	}
+        our $authkey;
+        if (-e "$idabench_home_dir/.ssh/authorized_keys"){
+            ((system("cat $idabench_home_dir/.ssh/id_ed25519.pub >> $idabench_home_dir/.ssh/authorized_keys")) == 0) and $authkey = 1;
+        } else {
+            ((system("cp -p $idabench_home_dir/.ssh/id_ed25519.pub $idabench_home_dir/.ssh/authorized_keys"))  == 0) and our $authkey = 1;
+        } 
+    }
+    else
+    {
+    	# Child process.
+	# Note: Be sure to set real id's before effective id's
+	# Set real user and group ids
+    	$< = $idabench_usergrp[0];
+	$( = $idabench_usergrp[1];
+	# Set effective user and group ids
+    	$> = $idabench_usergrp[0];
+	$) = $idabench_usergrp[1];
+	chdir $idabench_home_dir;
+	
+	mkdir ".ssh", 0700;
+	umask 0077;
+	exec("$keygen_app -t ed25519 -f .ssh/id_ed25519 -N \"\"");
+	# Parent will see if key was successfully created
+    }
+    push @needtos, "$idabench_home_dir/.ssh/id_ed25519.pub has been added to $idabench_home_dir/.ssh/authorized_keys. If you are\n"
+                   . "running a standalone sensor/analyzer combination, no further steps are required for\npublic key exchange."
+                   if ( $authkey == 1 );
+    push @needtos, "Append the contents of $idabench_home_dir/.ssh/id_ed25519.pub to the authorized_keys file on each\nremote sensor.";
+}
+
+#
+# Use this to copy perl files that must have the IDABENCH_PATH interpolated
+#
+sub move_subst_path
+{
+    my $infile = "$_[1]/$_[0].in";
+    open(SOURCE, "< $infile") or die "\nUnable to open required source file $infile.\n";
+    my $outfile = "$_[2]/$_[0]";
+    open(SINK, "> $outfile") or die "\nUnable to open $outfile for writing.\n";
+    my $insection = 0;
+    #
+    # When $IDABENCH_PATH =  is found, add some text, then skip everything until
+    # END INSTALLER SCRIPT SECTION is found.
+    #
+    while (<SOURCE>)
+    {
+    	if(/.*BEGIN INSTALLER SCRIPT SECTION/)
+	{
+	    $insection = 1;
+	    print SINK $_;
+	    print SINK "###### This section altered by installer script on $thisdate ######\n";
+	    print SINK "our \$IDABENCH_PATH = \"$IDABENCH_PATH\";\n";
+	    print SINK $tools_lines;
+	}
+	$insection = 0 if(/.*END INSTALLER SCRIPT SECTION/);
+	s/([^\$])IDABENCH_RELCGI_PATH/$1$IDABENCH_RELCGI_PATH/g;
+	s/([^\$])IDABENCH_RELHTTP_PATH/$1$IDABENCH_RELHTTP_PATH/g;
+	print SINK $_ if(!$insection);
+    }
+    close SINK;
+    close SOURCE;
+    my $success = chmod(0755, "$outfile") or die "\nUnable to set permissions on $outfile:\n$!\n";
+}
+
+#
+# Use this to copy files, retaining dates
+#
+sub move_path
+{
+    my $infile = "$_[1]/$_[0]";
+    my $outfile = "$_[2]/$_[0]";
+    
+    die "copy failed $infile=>$outfile\n" if system("cp -p $infile $outfile");
+    die "\n$0: could not set permissions on $outfile\n" if !chmod 0755, $outfile;
+}
+
+#
+# Use this to copy files, retaining dates
+#
+sub copy_path_recursive
+{
+    my $frompath = $_[0];
+    my $topath = $_[1];
+    die "copy failed $frompath=>$topath\n" if system("cp -r -p $frompath $topath");
+}
+
+#
+# Use this to copy html files, substituting paths for the strings
+# IDABENCH_RELCGI_PATH and IDABENCH_RELHTTP_PATH.
+#
+sub move_subst_relpath
+{
+    my $infile = "$_[1]/$_[0].in";
+    open(SOURCE, "< $infile") or die "\nUnable to open required source file $infile.\n";
+    my $outfile = "$_[2]/$_[0]";
+    open(SINK, "> $outfile") or die "\nUnable to open $outfile for writing.\n";
+    while (<SOURCE>)
+    {
+	s/([^\$])IDABENCH_RELCGI_PATH/$1$IDABENCH_RELCGI_PATH/g;
+	s/([^\$])IDABENCH_RELHTTP_PATH/$1$IDABENCH_RELHTTP_PATH/g;
+	print SINK $_;
+    }
+    close SINK;
+    close SOURCE;
+}
+
+our %dirtags;
+
+#
+# Modify httpd file, if possible
+#
+sub mod_httpd
+{
+
+    my $newsection = <<ENDSECT;
+# IDABENCH
+# This section created $thisdate by idabench analyzer installer.  Any changes
+# made in this section will be lost if the installer is run again.
+#
+Alias $IDABENCH_RELHTTP_PATH "$IDABENCH_HTTP_PATH"
+
+<Directory "$IDABENCH_HTTP_PATH/">
+    AllowOverride None
+    Require all granted
+</Directory>
+
+<Directory "$IDABENCH_WEB_PAGES_PATH/">
+    Options Indexes
+    IndexOptions +SuppressHTMLPreamble +ScanHTMLTitles \\
+        +DescriptionWidth=* +NameWidth=20
+    HeaderName $IDABENCH_RELCGI_PATH/indexheader.cgi
+    ReadmeName $IDABENCH_RELHTTP_PATH/indexfooter.html
+    Require all granted
+</Directory>
+
+<Directory "$IDABENCH_CGI_PATH/">
+    Options +ExecCGI
+    AddType text/html .cgi
+</Directory>
+
+addHandler cgi-script .cgi
+
+# END IDABENCH
+ENDSECT
+
+    my @httpdconf = ('/etc/httpd/conf/httpd.conf', '/etc/httpd/conf/srm.conf',
+     '/usr/local/etc/apache/httpd.conf', '/usr/local/etc/apache/srm.conf',
+     '/usr/local/apache/conf/httpd.conf', '/usr/local/apache/conf/srm.conf',
+     '/etc/apache/httpd.conf', '/var/www/conf/httpd.conf', 
+     '/etc/apache2/vhosts.d/00_default_vhost.conf', 
+     '/etc/apache2/vhosts.d/00_default_ssl_vhost.conf');
+
+    my ($httpdconf, $fudge) = "";
+    my @foundconfs;
+
+    foreach $conf (@httpdconf){
+        if (open(CONF, $conf)){
+            while(<CONF>){
+                if (/^\s*User $IDABENCH_WEB_USER/){
+                    push @foundconfs, $conf;
+                    print STDERR "found $conf\n";
+                }
+            }
+        }
+    }
+    if ($foundconfs[1]){
+        my $cant = "Multiple webserver config files found: @{foundconfs}";
+        push @needtos, $cant;
+    } else {
+        $httpdconf = shift @foundconfs;
+    }
+
+    if(!$httpdconf)
+    {
+        $httpdconf = "$IDABENCH_PATH/etc/idabench_httpd_section";
+        $fudge = 1;
+	my $cant = "Installer script could not modify httpd.conf. The following line should be\n";
+	$cant .= "inserted into the proper httpd.conf if this site employs an Apache\nweb server:\n";
+	$cant .= "\"Include $httpdconf\"";
+	push @needtos, $cant;
+	print " [  incomplete  ]\n";
+    } else {
+        die "Could not back up $httpdconf\n" if system("cp $httpdconf ${httpdconf}_pre_idabench");
+    }
+    
+    #
+    # Determine if there is a IDABENCH section already, and where to place the
+    # new one.
+    #
+    my $firstsectline = -1;
+    my $lastsectline = -1;
+    my $thisline = 0;
+    
+    my @all_lines = ();
+    
+    open(INPUT, "< $httpdconf");
+    while(<INPUT>)
+    {
+    	push @all_lines, $_;
+	
+    	$firstsectline = $thisline if /^# IDABENCH/;
+	$lastsectline = $thisline if /^# END IDABENCH/;
+	++$thisline;
+    }
+    close INPUT;
+    
+    die "$httpdconf contains corrupted IDABENCH section.\n"
+    	if($lastsectline < $firstsectline);
+	
+    open(OUTPUT, "> $httpdconf") or die "Could not open $httpdconf for writing\n";
+    for(my $aline = 0; $aline < $thisline; ++$aline)
+    {
+    	if($firstsectline > 0)
+	{
+	    # Rewrite the IDABENCH section
+	    if($aline == $firstsectline)
+	    {
+	    	# Skip all lines of the old section, and write the new
+	    	print OUTPUT $newsection;
+		$aline = $lastsectline;
+	    }
+	    else { print OUTPUT $all_lines[$aline]; };
+	}
+	else
+	{
+	    print OUTPUT $all_lines[$aline];
+	}
+    }
+    # If there was no old section, put the new section at end of file
+    if($firstsectline <= 0)
+    {
+        print OUTPUT $newsection;
+    }
+    close OUTPUT;
+    
+    print " [ $httpdconf changed. Previous version is in ${httpdconf}_pre_idabench ]\n" unless ($fudge);
+    
+    unless ($fudge){
+        print "Restarting webserver: ";
+        if (system ("/bin/systemctl restart httpd.service") == 0 )
+            {
+            print " [ success ]\n";
+        }
+        else
+        {
+            my $cant = "\"/bin/systemctl restart httpd.service\" failed to (Re)start the web daemon. Check system and \nhttpd logs for the cause. IDABench web interface is not available until the\nhttpd is successfuly started.";
+            push @needtos, $cant;
+            print " [ failed ]\n";
+        }
+    }
+    print "Setting httpd to startup on system boot: ";
+    if (system ("systemctl enable httpd.service") == 0 )
+    {
+	print " [ success ]\n";
+    }
+    else
+    {
+        my $cant = "\"systemctl enable httpd.service\" failed. Check system logs for the cause. The IDABench web\n interface will not be available at next reboot until the\nhttpd is successfuly started.";
+        push @needtos, $cant;
+	print " [ failed ]\n";
+    }
+    return 1;
+
+}
+
+#
+# Attempt to add cron jobs for root and idabench user.
+# Additional lines must be created manually for additional sensors.
+# The times used are only suggestions and can be adjusted as desired.
+#
+sub update_idabench_cron
+{
+    my $new_user_contents = <<ENDNEWIDABENCH;
+#
+# Crontab for a idabench analyzer.
+#
+5 * * * * $IDABENCH_BIN_PATH/fetchem.pl -l $IDABENCH_SITE_DEFAULT
+#
+17 1 * * * $IDABENCH_BIN_PATH/cleanup.pl -l $IDABENCH_SITE_DEFAULT
+#
+19 0 * * * $IDABENCH_BIN_PATH/run_daily_stats.pl -l $IDABENCH_SITE_DEFAULT
+ENDNEWIDABENCH
+
+    # Temporarily suppress stderr to avoid confusion of error messages.
+    open(OLDERR, ">&STDERR");
+    open(STDERR, "> /dev/null");
+
+    my $ntpdate_app = `which ntpdate`;
+    chomp $ntpdate_app;
+    
+    my $have_ntpdate = -x $ntpdate_app;
+    my $hwclock_app = `which hwclock`;
+    chomp $hwclock_app;
+    
+    my $idabench_cron_contents = `crontab -l -u $IDABENCH_USER`;
+    my $root_cron_contents = `crontab -l -u root`;
+    
+    close(STDERR);
+    open(STDERR, ">&OLDERR");
+    close(OLDERR);
+
+    my $have_hwclock = -x $hwclock_app;
+    
+    my $new_root_contents = <<ENDNEWROOT;
+#
+# root Crontab for a idabench analyzer.
+#
+# You may want to select a closer ntp server or setup ntpd for time sync. See
+# http://www.ntp.org for reference.
+#
+17 23 * * * $ntpdate_app pool.ntp.org
+18 23 * * * $hwclock_app -systohc
+ENDNEWROOT
+    
+    if(length($idabench_cron_contents))
+    {
+    	my $cant = "Cron jobs should be scheduled for user $IDABENCH_USER.\n";
+	$cant .= "The following are sample lines to merge into the existing crontab.\n";
+	$cant .= $new_user_contents;
+	push @needtos, $cant;
+	print " [ $IDABENCH_USER crontab not changed ]";
+    }
+    else
+    {
+	my ($tmpfile, $fh);
+	($fh, $tmpfile) =  tempfile("XXXXXXXX", DIR => "$IDABENCH::IDABENCH_SCRATCH_PATH"); 
+    	print $fh "$new_user_contents";
+
+	system("crontab -u $IDABENCH_USER $tmpfile") and
+	    die "Cannot run crontab for user $IDABENCH_USER\n";
+	
+	print " [ $IDABENCH_USER crontab changed ]";
+	    
+	unlink $tmpfile;
+    }
+    
+    if(length($root_cron_contents) or !$have_ntpdate or !$have_hwclock)
+    {
+    	my $cant = "Cron jobs should be scheduled for root to synchronize the system clock.\n";
+	$cant .= "ntpdate and hwclock may perform this task if this system is not running ntpd\nand is connected to the Internet.\n"
+	    if(!$have_ntpdate or !$have_hwclock);
+	    
+	$cant .= "The following are sample lines for crontab.\n$new_root_contents";
+	push @needtos, $cant;
+	print " [ root crontab not changed ]";
+    }
+    else
+    {
+	my ($tmpfile, $fh);
+	($fh, $tmpfile) =  tempfile("XXXXXXXX", DIR => "$IDABENCH::IDABENCH_SCRATCH_PATH");
+    	print OUTPUT $new_root_contents;
+
+	system("crontab -u root $tmpfile") and
+	    die "Installer cannot run crontab for root\n";
+
+	print " [ root crontab changed ]";
+	    
+	unlink $tmpfile;
+    }
+    print "\n";
+    push @needtos, "Add crontab lines for user $IDABENCH_USER for each additional sensor.";
+}
+
+sub copy_recursively_with_protection
+{
+    %protected_files = ();
+    my $fromdir = shift;
+    my $todir = shift;
+    
+    # Create hash of all files to protect
+    while(my $thisfile = shift)
+    {
+    	$protected_files{$thisfile} = 1;
+    }
+    
+    _copy_recursively($fromdir, $todir);
+    return @protected_found_files;
+}
+
+sub _copy_recursively
+{
+    my $fromdir = shift;
+    my $todir = shift;
+    
+    mkdir $todir if(! -d $todir);
+    
+    opendir(DIR, $fromdir) or return;
+    
+    my @allf = readdir(DIR);
+    closedir(DIR);
+    
+    foreach (@allf)
+    {
+    	my $thisfile = $_;
+    	# ignore this directory and parent directory
+    	next if /^\.\.?$/;
+	
+	my $fromname = "$fromdir/$thisfile";
+	my $toname = "$todir/$thisfile";
+	
+	if(-d $fromname)
+	{
+	    _copy_recursively($fromname, $toname);
+	}
+	else
+	{
+	    # If the file is on the protect list, and a copy already exists in
+	    # the destination directory, copy it to .new instead, and append
+	    # the name to @protected_found_files.
+	    if($protected_files{$thisfile} && (-e $toname))
+	    {
+	    	push @protected_found_files, $toname;
+		$toname .= ".new";
+	    }
+	    die "Unable to copy $fromname to $toname\n"
+	    	if(system("cp -p $fromname $toname"));
+	}
+    }
+}
+
+sub adj_selinux
+{
+    if(system("$SELINUX_BIN $IDABENCH_CGI_PATH/*cgi") == 0)
+	{
+	    print "SELinux Context expanded to include IDABench CGI files\n";
+	} else {
+	    print "Could not expand SELinux Context to include IDABench CGI files\n";
+	    print "IDABench software will not run.  Look for \"$SELINUX_BIN\" in your logs\n";
+	    print "To troubleshoot.  You could adjust SELinux to permissive mode too.\n";
+	}
+}
+
+sub adj_fw
+{
+    if(system("$FW_BIN -C IN_public_allow -p tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT") == 0)
+    {
+    	if(system("$FW_BIN -A IN_public_allow -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j ACCEPT") == 0)
+    	{
+	    print "Opened tcp/80 and tcp/443 to the world.  Do \"iptables-save\" to review\n\n";
+	} else {
+	    print "Failed to open tcp/80 and tcp/443 through the firewall. We think we found\n";
+	    print "a RHEL default firewall.  You may need to open those ports manually. YMMV\n";
+	    print "We tried\: iptables -A IN_public_allow -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j ACCEPT\n\n";
+	}
+    } else {
+	print "You have IPTABLES installed.  You may need to open tcp/80 and tcp/443.  Try something\n";
+	print "like\: iptables -A INPUT -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j ACCEPT\n\n";
+    }
+}

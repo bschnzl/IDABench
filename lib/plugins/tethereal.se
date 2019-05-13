@@ -1,0 +1,142 @@
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+$heading = "Search the IDABench logs using tethereal";
+
+$takes_file = 1;
+
+our $graphingyes = false;
+
+sub build_form_table
+{   
+    ( site=> {
+	   new => "block",
+	   bgcolor => $topframe,
+           param_label => "Which Sensor: ", 
+           maxlen => "50", 
+           param_type => "popup",
+           values => \@SiteFormVals, 
+           labels => \%SiteValueName,
+           default_value => $IDABENCH_SITE_DEFAULT,
+          },
+   nslookup => {
+	   spacing => "4",
+           param_label => "Host Name Lookup: ",
+           maxlen => "3",
+           param_type => "radio",
+           values => ["Yes", "No"],
+           default_value => "No",
+          },
+   max_lines => {
+	   spacing => "4",
+           param_label => "Max output lines: ",
+           maxlen => "7",
+           param_type => "number",
+	   field_size => "6",
+           min_value => "0",
+           max_value => "3000000",
+           default_value => "10000",
+          },
+	  
+    	&choose_time(),
+	
+   teth_pat => {
+    	    new => "block",
+	    required => "oneof",
+	    param_label=>" Tethereal search pattern: ",
+	    field_size => "70",
+	    maxlen => "200",
+	    param_type => "string",
+	    validity_string => "A-Za-z0-9()\-_ ,.;:$[]<>=\!&",
+	  },
+
+   verbose => {
+            new => "block",
+            bgcolor => $topframe,
+            param_label => "Print Protocol Analysis?",
+            maxlen => "3",
+            param_type => "radio",
+            values => [ "Yes", "No"],
+            default_value => "No",
+           },
+   hexa => {
+            spacing => "3",
+            param_label => "Print output in hexadecimal?",
+            maxlen => "3",
+            param_type => "radio",
+            values => [ "Yes", "No" ],
+            default_value => "No",
+           },
+
+	
+	&choose_graph()
+	);
+}
+
+sub build_search_command
+{
+    my $barepattern = $teth_pat;
+    our $pattern = "\'$barepattern\'";
+
+    my $hexad  = "-x" if ($hexa eq "Yes");
+    my $verbose  = "-V" if ($verbose eq "Yes");
+
+    
+    $graphingyes = ($output_type ne "html");
+    
+    my $lookup = ($nslookup eq "Yes") ? "" : "-n";
+     
+    my $cmdline = "$TETHEREAL_PLGBIN $lookup -t ad $hexad $verbose -Y $pattern -r";
+    my @syscom = ($TETHEREAL_PLGBIN, "-tad", "-Y$barepattern", "-r$PCAPTESTF");
+    push @syscom, $lookup if $lookup;
+    
+    # system returns true if there has been an error
+    my $fooey = system @syscom;
+    $pattern_error = "Pattern input error. Check syntax:\n\n\t$pattern\n" if $fooey;
+
+    $pattern_error = qq(Plugin error: tethereal not found. Please install <A HREF="http://www.ethereal.com" target="new">tethereal</A> to access this capability.\n) unless -x $TETHEREAL_PLGBIN;
+    return $cmdline;   
+}
+
+# No arguments.
+# Perform plugin-specific data validation, and add to $aborted if errors found.
+# All general validity checks will have been performed before this is called.
+sub plugin_validation
+{
+}
+
+# One argument: A line of the output from the search command.
+# Transform it in place to make the output suitable for display.
+sub transform_plugin_line
+{
+    chomp @_[0];
+    if($graphingyes)
+    {
+    	if(@_[0] =~ m/^\s*\d* (\d{4})-(\d{2})-(\d{2} \d{2}:\d{2}:\d{2}\.\d{4})/)
+	{
+	    @_[0] = "$1/$2/$3";
+	}
+	else
+	{
+	    @_[0] = "";
+	}
+    }
+}
+
+# No arguments.
+# Returns a list of html to introduce the results.
+sub answer_heading
+{
+    my $escpattern = escapeHTML($pattern);
+    (
+	h1("Your answers: "),
+	p(" Sensor: $param_info{site}{labels}{$site}"),
+	p(" Dates: $bdate - $edate ----- Pattern: $escpattern")
+    );
+}
+

@@ -1,0 +1,136 @@
+#! /usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# find_scan.pl         - idabench Version 1.0
+#
+#  This program requires three command line arguments:
+#  The first is the name of the file into which the output will
+#  be written.
+#  The second is a threshold level for recording hits on ip addresses.
+#  The next is a threshold level for hots on different ports.
+#  If the optional fourth argument is yes, resolve ip addresses to names.
+#
+use strict;
+use Socket;
+
+my $output_filename = $ARGV[0];
+my $host_threshold = $ARGV[1];
+my $port_threshold = $ARGV[2];
+my $resolve_names = $ARGV[3] ? $ARGV[3] : "no";
+
+print STDERR "Begin find_scan.pl with $host_threshold hosts and $port_threshold ports thresholds \n";
+
+my ($src_ip, $dst_ip, %src_porthash, %src_dsthash);
+
+my $pkt_number = 0;
+while(<STDIN>) 
+{
+    $pkt_number++;
+    next if /gre-proto/;
+    next if /trunc/;
+    $_ =~ s/^IP\s//;
+    my ($src_ip, $crap1, $dst_ip, $flags, $crap2) = split(/\s+/, $_, 5);
+    $src_ip =~ /(\d*\.\d*\.\d*\.\d*)/;
+    $src_ip = inet_aton($1);
+
+    $dst_ip =~ tr/://d;
+    my $num_flds = split(/\./, $dst_ip);
+    next if($num_flds < 4); # Don't know what to do with this
+    
+    my $dst_port = "";
+    
+    if($num_flds == 5)
+    {
+    	# The usual case; port follows address
+	$dst_port = pop(@_);
+	$dst_ip = join('.', @_);
+    }
+    else
+    {
+    	# Sometimes there is a space instead
+    	$dst_ip = join('.', @_);
+	$dst_port = "ICMP" if ($flags =~ /icmp/);
+    }
+    # Convert to number for more compact hashing
+    $dst_ip = inet_aton($dst_ip);
+
+    # This allows us to count how many times a given
+    # source IP hit ports on a given destination IP,
+    # and how many different IPs it hit in the same port.
+	    $src_porthash{$src_ip}{$dst_port}++ 
+    if(!$src_dsthash{$src_ip}{$dst_ip}{$dst_port}++);
+    
+}
+
+close(STDIN);
+
+my (%tgt_sys, %tgt_port, %tgt_hits, %tgt_pkts);
+
+foreach $src_ip (keys(%src_dsthash))
+{
+    my $num_hits = 0;
+    my $num_pkts = 0;
+    # The number of ports hit by this source ip
+    my $num_port = scalar(keys(%{ $src_porthash{$src_ip} } ));
+    
+    # The destination ips hit by this source ip
+    my @dstkeys = keys(%{ $src_dsthash{$src_ip} } );
+    # The number of destination ips hit by this source ip
+    my $num_sys = scalar(@dstkeys);
+    
+    foreach $dst_ip (@dstkeys)
+    {
+    	$num_hits += scalar(keys(%{ $src_dsthash{$src_ip}{$dst_ip} } ));
+    	foreach my $dst_port (keys(%{ $src_dsthash{$src_ip}{$dst_ip} } ))
+	{
+    	    $num_pkts += $src_dsthash{$src_ip}{$dst_ip}{$dst_port};
+    	}
+    }
+    # If this source ip has been hitting a lot of systems or ports
+    # make a note of it
+    if (($num_sys > $host_threshold) || ($num_port > $port_threshold))
+    {
+	$tgt_sys{$src_ip} = $num_sys;
+	$tgt_port{$src_ip} = $num_port;
+	$tgt_hits{$src_ip} = $num_hits;
+	$tgt_pkts{$src_ip} = $num_pkts;
+    }
+}
+
+# Clear hashes that are no longer needed
+%src_porthash = ();
+%src_dsthash = ();
+
+open (OUT,">$output_filename");
+print (OUT "Scan thresholds: $host_threshold hosts, $port_threshold ports\n");
+printf(OUT "<A HREF=\"#t1\" title=\" Number of unique destination IP addresses this host sent packets to \">%-7s</A> ", "#IPs");
+printf(OUT "<A HREF=\"#t1\" title=\" Number of unique destination ports this host sent packets to \">%-7s</A> ", "ports");
+printf(OUT "<A HREF=\"#t1\" title=\" Sum of the number of ports hit on all destination IPs \">%-7s</A> ", "hits");
+printf(OUT "<A HREF=\"#t1\" title=\" Total packets sent from this source \">%-7s</A> ", "packets");
+printf(OUT "<A HREF=\"#t1\" title=\" Ratio of total packets to destination port/address pairs. \">%-9s</A> ", "pkts/hits");
+printf(OUT "<A HREF=\"#t1\" title=\" IP address of source \">%-17s</A> ", "source");
+printf(OUT "<A HREF=\"#t1\" title=\" Name of source (if address resolution is enabled in site.ph) \">%s</A> \n\n", "name");
+
+foreach $src_ip (sort keys(%tgt_sys))
+{
+    my $srcname = ($resolve_names eq "yes") ?
+    	gethostbyaddr($src_ip, AF_INET) :
+    	"";
+    my $src_string = inet_ntoa($src_ip);
+    my $num_hits = $tgt_hits{$src_ip};
+    my $num_pkts = $tgt_pkts{$src_ip};
+	
+    printf(OUT "%-7d %-7d %-7d %-7d %-6.2f    %-17s %-40s \n",
+	$tgt_sys{$src_ip}, $tgt_port{$src_ip}, $num_hits,
+	$num_pkts, $num_pkts / $num_hits, $src_string, $srcname);
+}
+close(OUT);
+
+print STDERR "End find_scan.pl.\n";

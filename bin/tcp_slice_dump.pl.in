@@ -1,0 +1,334 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# tcp_slice_dump.pl  - idabench Version 1.0
+#
+# A script that takes a tcpdump, ngrep or tethereal search request and returns
+# a consolidated binary libpcap capture file. This should be reduced to a few
+# subroutines in a functions lib in a future version.
+
+package IDABENCH;
+
+use Getopt::Long;
+use Digest::MD5 qw(md5 md5_hex md5_base64);
+
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+my $pluginh = "$IDABENCH_LIB_PLUGIN_PATH/plugins.ph";
+unless (my $return = do $pluginh ){
+   die("Unable to parse configuration file $pluginh:\n$@\n") if $@;
+   warn "Unable to determine any plugin paths. No analysis will be done.\n" unless defined $return;
+}
+
+foreach (keys %IDABENCH::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local $sym = $IDABENCH::{$_};
+    next if(!defined($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+#########################################################################
+#
+# Subroutine to return a method reference. (From "Programming Perl"
+# Third Edition, p. 261.
+#
+#sub get_method_ref {
+#   my ($self, $methodname) = @_;
+#   my $methref = sub {
+#      return $self->$methodname(@_);
+#   };
+#   return $methref;
+#}
+
+#########################################################################
+#
+# See if the Compress::Zlib module is available:
+#
+#if (eval "require Compress::Zlib") {
+#    import Compress::Zlib;
+#    $open_sub = sub {
+#	$gz = gzopen($_[0], "rb");   
+#	$read_sub = get_method_ref($gz, 'gzread');
+#	$close_sub = get_method_ref($gz, 'gzclose');
+#	$end_of_file = get_method_ref($gz, 'gzerror');
+#	return $gzerrno;
+#    };
+#} else {
+    $open_sub = sub {
+	$file_all_read = 0;
+	my $file_name = @_[0];
+	my $unzip_cmd = "$GUNZIP_CMD -c $file_name |";      
+	return(open(ZIP_DO, $unzip_cmd));
+    };
+    $read_sub = sub {
+	my $num_to_read = @_[1];
+	my $num_bytes = sysread(ZIP_DO, @_[0], $num_to_read);
+	$file_all_read = 1 if($num_bytes < 1);
+	return $num_bytes; };
+    $close_sub = sub { return(close(ZIP_DO)) };
+    $end_of_file = sub { return $file_all_read; };
+#}
+
+#########################################################################
+#
+# Unzip the file and pipe it to the search command, which will write
+# its output to $output_file_name
+#
+sub query_zipped_file {
+
+    my $zip_file_name = $_[0];
+    my $output_file_name = $_[1];
+    my $search_cmd = $_[2];
+
+    $search_cmd =~ s/-r /-w $output_file_name -r /;
+
+    $open_sub->($zip_file_name) || die ("Unable to open $zip_file_name: $!\n");
+    
+    $pid = open(FIND, "|$search_cmd") or die("Cannot start tcpdump searching process.");
+
+    my $blksize = 32768;
+    
+    until ($end_of_file->()) {
+	$read_len = $read_sub->($buf, $blksize);
+	$write_len = $read_len;
+	$offset = 0;
+	while ($write_len ) {          # Handle partial writes.
+	    my $written = syswrite(FIND, $buf, $write_len, $offset);
+	    return() unless defined $written;
+	    $write_len -= $written;
+	    $offset += $written;
+	}
+    }
+    close(FIND);
+    $close_sub->();
+}
+
+
+#########################################################################
+#
+# Given a range of dates, a site name, a temporary directory, and the search
+# command passed into this program, create_query_files finds all the raw
+# data files in this range, and processes them using tcpdump with the search
+# parameters, writing the results into files in the temporary directory.
+#
+# It returns nothing.
+#
+sub create_query_files {
+
+    my ($beg_date, $end_date, $site, $tempDir, $search_cmd) = @_;
+
+    mkdir $tempDir;
+
+    if (!(-e $tempDir)) {
+	system("whoami");
+	die ("Couldn't create directory $tempDir!");
+    }
+
+    # This prepends $IDABENCH_SITE_PATH to the search path for modules.
+    unshift(@INC, "$IDABENCH_SITE_PATH");
+    die ("No such site: ${site}.") if ( ! -e "$IDABENCH_SITE_PATH/${site}/site.ph");
+    require "${site}/site.ph";
+
+#
+# If no dates specified on command line, assume today.
+#
+    if ($beg_date eq "") {
+	$beg_date = strftime("%Y%m%d", localtime);
+	$beg_date .= "00";
+    }
+    if ($end_date eq "") {
+	$end_date = $beg_date;
+    }
+#
+#  Unpack the dates into their useful components.
+#
+$yr_format = "a4a2a2a2"; 
+
+    ($beg_year, $beg_mon, $beg_mday, $beg_hour) = unpack($yr_format, $beg_date);
+    ($end_year, $end_mon, $end_mday, $end_hour) = unpack($yr_format, $end_date);
+#
+# Compensate for the way Perl stores months and years.
+#
+    $beg_mon -= 1;
+    $beg_year -= 1900;
+    $end_mon -= 1;
+    $end_year -= 1900;
+#
+# Convert our dates back to time format.
+#
+    $beg_time = timelocal(0, 0, $beg_hour, $beg_mday, $beg_mon, $beg_year);
+    $end_time = timelocal(0, 0, $end_hour, $end_mday, $end_mon, $end_year);
+    $end_time += 3600;
+
+#
+# Loop through the appropriate raw data files.
+#
+    my $temp_file_counter = 0;
+
+# Redirect STDERR to /dev/null to keep our output clean of broken pipe 
+# messages, etc.
+#
+    open STDERR, "> /dev/null";
+    for ($time = $beg_time; $time < $end_time; $time += 3600) {
+   	@date = localtime($time);
+   	$subdir = strftime("%b%d", @date);
+   	$fname = strftime("%Y%m%d%H", @date);
+   	$file_name = "$ANALYZER_DIR/$subdir/tcp.${fname}.gz";
+   	$line_hdr = strftime("%Y/%m/%d ", @date);
+   	next if ( ! -e $file_name);
+
+	#print "$file_name\n";
+	#print "About to gunzip $file_name to $tempDir/$temp_file_counter\n";
+	&query_zipped_file($file_name, "$tempDir/$temp_file_counter", $search_cmd);
+	print ".";
+	$temp_file_counter++;
+    }
+
+    print "\n";
+}
+
+#########################################################################
+#
+# We need to know if the file contains 0, 1, or more packets.
+# Return 0, 1, or 2, respectively.
+#
+sub noneOneManyPackets {
+
+    $file = shift;
+
+    # Limit output to two packets, since we only need to know if there are > 1
+    my @cmdline = ($TCPDUMP_PLGBIN, "-c", "2", "-qnr", $file);
+
+    if (!open(OUTPUT, "-|")) {
+    	# Child process pipes output to parent
+	exec(@cmdline);
+	exit;
+    }
+    
+    # Parent process
+    my $numPackets = 0;
+    
+    while (<OUTPUT>) { $numPackets++ }
+    close OUTPUT;
+    
+    #print "$numPackets (or more) packets in $file\n";
+    
+    return $numPackets;
+}
+
+
+#########################################################################
+#
+# tcpslice cannot handle a file containing only a single packet, so if we
+# have a single packet file, read that packet and append it, so that
+# there are two identical packets.
+#
+sub fixSinglePacketFile {
+
+    my $file = shift;
+    
+    open (INFILE, $file);
+    sysseek (INFILE, 24, 0);
+    my $bytesRead = sysread (INFILE, $buf, 32768);
+    close INFILE;
+    
+    open (OUTFILE, ">>$file");
+    syswrite (OUTFILE, $buf, $bytesRead);
+    close OUTFILE;
+}
+
+#########################################################################
+#
+# Create a temporary directory based on a hash of the time.
+# Run each file through tcpdump, using the search criteria and the required
+# range of times, leaving the output files in the temporary diretory.
+# Then use tcpslice to combine all these files into a single binary
+# named using the timehash.  Delete the temporary files and directories.
+#
+sub makePacketDump {
+
+    my ($beg_date, $end_date, $site, $search_cmd) = @_;
+    
+    my $timeHash = md5_hex(localtime);
+    my $tempDir = "$IDABENCH_WEB_SPOOL_LOCAL/$timeHash";
+    
+    &create_query_files($beg_date, $end_date, $site, $tempDir, $search_cmd);
+
+    my $finalDumpFile = "$timeHash.bin";
+    my @cmdLine = ("tcpslice", "-w", "$IDABENCH_WEB_SPOOL_LOCAL/$finalDumpFile");
+    
+    opendir(DIR, $tempDir);
+    @tempFiles = grep (/\d/,readdir(DIR));
+    closedir(DIR);
+    
+    foreach my $file (@tempFiles) {
+    
+    	my $numPackets = noneOneManyPackets("$tempDir/$file");
+	
+	fixSinglePacketFile("$tempDir/$file") if($numPackets == 1);
+	
+	push @cmdLine, "$tempDir/$file" if($numPackets > 0);
+	
+	# Ignore the file if it contains no valid packets
+	#print "pushed $file on cmdLine -- $numPackets\n";
+	
+    }
+    
+    #print "cmdLine: @cmdLine\n";
+    system (@cmdLine);
+    
+    foreach (@tempFiles) { unlink ($_) }
+
+    rmdir ($tempDir);
+	
+    return $finalDumpFile;
+    
+}
+
+#########################################################################
+#
+# Remove all files in the specified directory older than the specified days.
+#
+sub purgeOldFiles {
+
+    my ($pathToFiles, $maxDays) = @_;
+
+    my $cutoffTime = time - ($maxDays * 24 * 60 *60);
+
+    opendir (DIR, $pathToFiles);
+    my @files = grep (/[^.]/, readdir(DIR));
+
+    my $fileTime, $fileTimePretty;
+    foreach $file (@files) {
+
+	$file = "$pathToFiles/$file";
+	$fileTime = (stat("$file"))[9];
+
+	if ($fileTime < $cutoffTime) {
+	    unlink ($file);
+	}
+	
+    }
+}
+
+&purgeOldFiles($IDABENCH_WEB_SPOOL_LOCAL, $IDABENCH_TEMP_FILE_LIFESPAN);
+
+$outputFile = makePacketDump(@ARGV);
+
+print "<A HREF=\"$IDABENCH_WEB_SPOOL_URL/$outputFile\">Click here to download binary dump file.</A>\n";
+

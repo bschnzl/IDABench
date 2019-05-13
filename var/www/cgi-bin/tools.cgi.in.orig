@@ -1,0 +1,332 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# tools.cgi         -  idabench Version 1.0
+#
+#
+use CGI qw/:all /;
+use CGI qw(small);
+use CGI::Carp qw(fatalsToBrowser);
+use POSIX qw(strftime);
+use Time::Local;
+#
+
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+my $pluginh = "$IDABENCH_LIB_PLUGIN_PATH/plugins.ph";
+unless (my $return = do $pluginh ){
+   die("Unable to parse configuration file $pluginh:\n$@\n") if $@;
+   warn "Unable to determine any plugin paths. No analysis will be done.\n" unless defined $return;
+}
+#
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local $sym = $main::{$_};
+    next if(!defined($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+# List of the form values for IDABench sensor sites
+@SiteFormVals = ();
+
+# Read each site.ph file to harvest its $SITE_FORM_LABEL value
+opendir(DH, $IDABENCH_SITE_PATH) or
+    die "Unable to open site path directory.\n";
+    
+while ( defined ($sitedir = readdir(DH)) )
+{
+   next unless -f "$IDABENCH_SITE_PATH/$sitedir/site.ph"; # only interested in directories with site.ph present
+   my $sitename = $sitedir;	    	# site without extension
+   my $ph_filename = "$IDABENCH_SITE_PATH/$sitedir/site.ph";  # full path to file
+   local $SITE_FORM_LABEL;  	# hide any current value; make undefined
+   do $ph_filename;
+   # Pick up value from file, or default to name of site
+   $SITE_FORM_LABEL = $sitename unless defined $SITE_FORM_LABEL;
+   push @SiteFormVals, $sitename;
+   # Hash of field labels indexed by site name
+   $SiteValueName{$sitename} = $SITE_FORM_LABEL;
+}
+
+closedir(DH);
+
+# A default choice of site can be included in idabench.conf, if desired
+$IDABENCH_SITE_DEFAULT = $SiteFormVals[0] unless defined $IDABENCH_SITE_DEFAULT;
+
+%month_no = (
+   "Jan" => 0, "Feb" => 1, "Mar" => 2, "Apr" => 3, "May" => 4, "Jun" => 5,
+   "Jul" => 6, "Aug" => 7, "Sep" => 8, "Oct" => 9, "Nov" => 10, "Dec" => 11);
+#
+@init_time = localtime(time);
+$init_day = sprintf("%02i", $init_time[3]);
+$init_mon = $init_time[4];
+$init_mon_name = strftime("%b", @init_time);
+$init_yr = 1900 + $init_time[5];
+$init_subdir = strftime("%b%d", @init_time);
+$today_year = strftime("%Y", @init_time);
+@year_list = ($today_year - 4, $today_year - 3, $today_year - 2,
+   $today_year - 1, $today_year);
+#
+$today = strftime("%Y%m%d", @init_time);
+$tgt_day = $today;
+$html_dir = "$URL_OUTPUT_DIR/${init_subdir}";
+$prefix = "$html_dir/${tgt_day}";
+#
+#
+$JSCRIPT=<<END;
+// Open a window
+function OpenWindow(page, win_name, horiz, vert) {
+        var newwin = window.open(page, win_name,
+            "width="+horiz+",height="+vert+",toolbar=no,scrollbars=yes,resizable=yes,status=yes");
+        newwin.focus();
+        if (newwin != null && newwin.opener == null) newwin.opener = self;
+} 
+// Load the Directory Index
+function LoadIndex() {
+    if (self.opener.location.pathname == "$IDABENCH_RELHTTP_PATH/") {
+        self.opener.location="$URL_OUTPUT_DIR/";
+    }
+};
+END
+print header,
+   title('Intrusion Detection Tools'),
+   start_html(-title=>'Intrusion Detection Tools', 
+              -script=>$JSCRIPT,
+							-onLoad=>'LoadIndex()',
+              -background=>"IDABENCH_RELHTTP_PATH/images/binary.png",
+              -bgcolor=>'#000080',
+              -link=>'#CCCCFF',
+              -vlink=>'#FF00AA', 
+              -alink=>'#F6F7AD', 
+              -text=>'#000000',
+             );
+if (!param) {
+      print start_form(-name=>'tools');
+      print basefont({-size=>'2'});
+      print font({-color=>'#F6F7AD',-size=>1}, server_name());
+      print_selectiontable();
+      print_timetable($prefix);
+      print_actiontable($html_dir, $tgt_day);
+      end_form;
+} else {
+   select STDOUT; $| = 1;              # make unbuffered
+#
+   $tgt_site = param('site');
+   $action = param('action');
+   $tgt_day = param('day');
+   $tgt_mon_name = param('month');
+   $tgt_mon = $month_no{$tgt_mon_name};
+   $tgt_yr = param('year') - 1900;
+   @new_time = (0, 0, 0, $tgt_day, $tgt_mon, $tgt_yr, 0, 0, 0);
+   $tgt_subdir = strftime("%b%d", @new_time);
+   $tgt_day = strftime("%Y%m%d", @new_time);
+   $html_dir = "$IDABENCH_REL_WEB_PAGES_ROOT/${tgt_site}/${tgt_subdir}";
+   $prefix = "$html_dir/${tgt_day}";
+#
+   print start_form(-name=>'tools');
+   print basefont({-size=>'2'});
+   print font({-color=>'#F6F7AD',-size=>1}, server_name());
+   print_selectiontable();
+   print_timetable($prefix);
+   print_actiontable($html_dir, $tgt_day);
+#  print center(submit(-name=>'action', -value=>'Submit Changes')),
+   end_form;
+   print end_html();
+   
+}
+#
+sub print_selectiontable {
+#
+# Build the "Selection" table
+#
+   print 
+      p(b(font({-color=>'#F6F7AD'}, "Site: <BR>")), 
+      popup_menu(-name=>'site',
+                  -values=>\@SiteFormVals,
+                  -labels=>\%SiteValueName,
+                  -default=>$IDABENCH_SITE_DEFAULT,
+                  -onChange=>'javascript:document.tools.submit()'
+                )
+       ),
+      p( b(font({-color=>'#F6F7AD'}, "Year: <BR>")),
+      popup_menu(-name=>'year',
+                 -values=>\@year_list,
+                 -default=>$init_yr,
+                 -onChange=>'javascript:document.tools.submit()'
+                 )
+       ),
+      p(b(font({-color=>'#F6F7AD'}, "Month: <BR>")),
+      popup_menu(-name=>'month',
+                 -values=>['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug',
+                           'Sep', 'Oct','Nov','Dec'],
+                 -default=>$init_mon_name,
+                 -onChange=>'javascript:document.tools.submit()'
+                 )
+        ),
+      p(b(font({-color=>'#F6F7AD'}, "Day: <BR>")), 
+      popup_menu(-name=>'day',
+                 -values=>['01','02','03','04','05','06','07','08','09','10',
+                           '11','12', '13', '14','15','16','17','18','19',
+                           '20','21','22', '23','24', '25','26','27','28',
+                           '29','30','31'],
+                 -default=>$init_day,
+                 -onChange=>'javascript:document.tools.submit()'
+                )
+        );
+}
+
+sub print_actiontable {
+
+#
+# Build the "Action" table
+#
+
+   my $html_dir = $_[0];
+   my $tgt_day = $_[1];
+   print p(),
+      table({-align=>'CENTER', -border=>'0', -bordercolor=>'#0000',
+             -cellspacing=>'0', -cellpadding=>'1'},
+            Tr(td({-align=>'CENTER',-valign=>'MIDDLE'},
+                a({-name=>'statistics',
+                   -href=>"${html_dir}/stats.${tgt_day}.html",
+                   -target=>'idabench'},
+                  img({-src=>"IDABENCH_RELHTTP_PATH/images/statistics2.png",-border=>'0'})
+                 )
+                 )
+              ),
+            Tr(td({-align=>'CENTER',-valign=>'MIDDLE'},
+                a({-name=>'search',-href=>"/idabench/cgi-bin/search.cgi\?tool=${SEDEFAULT}", 
+                   -target=>'search',
+                   -onClick=>"OpenWindow(\'/idabench/cgi-bin/search.cgi\?tool=${SEDEFAULT}\', 'search', '800', '700')"},
+                  img({-src=>"/idabench/images/search2.png",-border=>'0'})
+                 )
+                 )
+              ),
+            Tr(td({-align=>'CENTER',-valign=>'MIDDLE'},
+                a({-name=>'lookup',-href=>"IDABENCH_RELCGI_PATH/lookup.cgi", -target=>'lookup',
+                   -onClick=>"OpenWindow(\"IDABENCH_RELCGI_PATH/lookup.cgi\", 'lookup','450','250')"},
+                  img({-src=>"IDABENCH_RELHTTP_PATH/images/lookup2.png",-border=>'0'})
+                 )
+                 )
+              ),
+            Tr(td({-align=>'CENTER',-valign=>'MIDDLE'},
+                a({-name=>'whois',-href=>"IDABENCH_RELCGI_PATH/whois.cgi", -target=>'whois',
+                   -onClick=>"OpenWindow(\"IDABENCH_RELCGI_PATH/whois.cgi\", 'whois', '350', '400')"},
+                  img({-src=>"IDABENCH_RELHTTP_PATH/images/whois2.png",-border=>'0'})
+                 )
+                 )
+              ),
+            Tr(td({-align=>'CENTER',-valign=>'MIDDLE'},
+                a({-name=>'compose',-href=>"IDABENCH_RELCGI_PATH/compose_IR.cgi", 
+                   -target=>'compose',
+                   -onClick=>"OpenWindow(\"IDABENCH_RELCGI_PATH/compose_IR.cgi\",'compose','620','675')"},
+                  img({-src=>"IDABENCH_RELHTTP_PATH/images/report2.png",-border=>'0'})
+                 )
+                 )
+              ),
+      )
+}
+#
+sub print_timetable {
+#
+#
+# Build the Time of day table
+#
+   my $prefix = $_[0];
+   print
+      table({-align=>'CENTER', -border=>'5', -bordercolor=>'#0000',
+             -cellspacing=>'1', -cellpadding=>'1'},
+         Tr({-align=>'CENTER',-valign=>'MIDDLE'}, 
+              a(b(font({-color=>'#F6F7AD'}, "Hour")))),
+         Tr(
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}00.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("00"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}01.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("01"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}02.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("02"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}03.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("03")))),
+         Tr(
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}04.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("04"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}05.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("05"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}06.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("06"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}07.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("07")))),
+         Tr(
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}08.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("08"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}09.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("09"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}10.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("10"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}11.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("11")))),
+         Tr(
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}12.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("12"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}13.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("13"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}14.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("14"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}15.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("15")))),
+         Tr(
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}16.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("16"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}17.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("17"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}18.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("18"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}19.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("19")))),
+         Tr(
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}20.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("20"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}21.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("21"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}22.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("22"))),
+            td({-align=>'CENTER',-valign=>'MIDDLE'},
+               a({-target=>'idabench', -href=>"${prefix}23.html",
+                  -onClick=>'javascript:document.tools.submit()'}, b("23")))));
+}

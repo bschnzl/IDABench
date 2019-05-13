@@ -1,0 +1,251 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# pat_search.pl          - idabench Version 1.0
+#
+#
+#  Script to accept a beginning and ending time and search all the hourly
+#  IDABench gzipped raw data files for the pattern passed as a calling parameter.
+#
+#  Parameters are: -l SITE -s YYYYMMDDHH -e YYYYMMDDHH -p "search command"
+#  
+
+use Getopt::Long;
+use POSIX qw(strftime);
+use Time::Local;
+use IO::Handle;
+#
+#########################################################################
+#
+# Subroutine to return a method reference. (From "Programming Perl"
+# Third Edition, p. 261.
+#
+#sub get_method_ref {
+#   my ($self, $methodname) = @_;
+#   my $methref = sub {
+#      return $self->$methodname(@_);
+#   };
+#   return $methref;
+#}
+#########################################################################
+#
+# See if the Compress::Zlib module is available:
+#
+  # if (eval "require Compress::Zlib") {
+#   if (eval "require Compress::Zlib") {
+#      import Compress::Zlib;
+#      $open_sub = sub {
+#         $gz = gzopen($_[0], "rb");   
+#         $read_sub = get_method_ref($gz, 'gzread');
+#         $close_sub = get_method_ref($gz, 'gzclose');
+#         $end_of_file = get_method_ref($gz, 'gzerror');
+#         return $gzerrno;
+#      };
+#   } else {
+      $open_sub = sub {
+         $file_all_read = 0;
+         my $file_name = @_[0];
+         my $unzip_cmd = "$GUNZIP_CMD -c $file_name |";      
+         return(open(ZIP_DO, $unzip_cmd));
+      };
+      $read_sub = sub {
+	 my $num_to_read = @_[1];
+         my $num_bytes = sysread(ZIP_DO, @_[0], $num_to_read);
+         $file_all_read = 1 if($num_bytes < 1);
+         return $num_bytes; };
+      $close_sub = sub { return(close(ZIP_DO)) };
+      $end_of_file = sub { return $file_all_read; };
+#   }
+#
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local our $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+
+############################################################################
+#
+sub usage {
+        print "Usage: pat_search.pl {-n} {-f} -b YYYYMMDDHH -e YYYYMMDDHH -l SITE -c SEARCH COMMAND.\n";
+	print "  -n to not look up host names\n";
+	print "  -f to append the file name to each execution of search command\n";
+	exit 2;
+}
+#
+$group_pid = getpgrp(0);
+#
+###############################################################################
+#  Catch user interrupt signal and abort our children.
+#
+sub sig_catch {
+   $SIG{HUP}=\&sig_catch;
+   $SIG{INT}=\&sig_catch;
+   kill (-TERM, $group_pid);
+   exit 0;
+   return;
+}
+#
+$SIG{HUP}=\&sig_catch;
+$SIG{INT}=\&sig_catch;
+#
+#########################################################################
+#
+#	Parse the parameters.
+#
+#
+&GetOptions("n", \$no_lookup_flag, "f", \$plugin_reads_from_file, "b:s", \$beg_date, "e:s", \$end_date, 
+            "l:s", \$Site, "c=s", \$search_cmd);
+##
+#
+#  Check parameter validity.
+#
+$sdlen = length($beg_date);
+if (("$Site" eq "") or ($search_cmd eq "") or (($sdlen > 0) and ($sdlen != 10)))
+{
+        usage();
+}
+$yr_format = "a4a2a2a2"; 
+#
+# Once the Site is identified from the command line,
+# load the needed external Parameters.
+#
+unshift(@INC, "$IDABENCH_SITE_PATH");
+die ("No such site: ${Site}.") if ( ! -e "$IDABENCH_SITE_PATH/${Site}/site.ph");
+require "$IDABENCH_SITE_PATH/${Site}/site.ph";
+
+#
+# If no dates specified on command line, assume today.
+#
+if ($beg_date eq "") {
+   $beg_date = strftime("%Y%m%d", localtime);
+   $beg_date .= "00";
+}
+if ($end_date eq "") {
+   $end_date = $beg_date;
+}
+#
+#  Unpack the dates into their useful components.
+#
+($beg_year, $beg_mon, $beg_mday, $beg_hour) = unpack($yr_format, $beg_date);
+($end_year, $end_mon, $end_mday, $end_hour) = unpack($yr_format, $end_date);
+#
+# Compensate for the way Perl stores months and years.
+#
+$beg_mon -= 1;
+$beg_year -= 1900;
+$end_mon -= 1;
+$end_year -= 1900;
+#
+# Convert our dates back to time format.
+#
+$beg_time = timelocal(0, 0, $beg_hour, $beg_mday, $beg_mon, $beg_year);
+$end_time = timelocal(0, 0, $end_hour, $end_mday, $end_mon, $end_year);
+$end_time += 3600;
+#
+#  Set the no-lookup_flag to -n for tcpdump if it was specified on the 
+#  calling parameter list, i.e. not looking up is the default.
+#
+$no_lookup_flag = ($no_lookup_flag) ?"-n":"";
+#
+# Make sure the passed filter pattern has the quotes.
+#
+
+$SIG{INT}=\&sig_catch;
+$SIG{HUP}=\&sig_catch;
+
+#
+# Loop through the appropriate raw data files.
+#
+# Redirect STDERR to /dev/null to suppress broken pipe messages, etc.
+#
+open STDERR, "> /dev/null";
+
+   for ($time = $beg_time; $time < $end_time; $time += 3600) {
+   	@date = localtime($time);
+   	$subdir = strftime("%b%d", @date);
+   	$fname = strftime("%Y%m%d%H", @date);
+   	$file_name = "$ANALYZER_DIR/$subdir/tcp.${fname}.gz";
+   	$line_hdr = strftime("%Y/%m/%d ", @date);
+   	next if ( ! -e $file_name);
+	
+	# For plugins that work directly on gzipped files
+	if($plugin_reads_from_file)
+	{
+	    my $extended_search_cmd = "$search_cmd $file_name";
+	    open(CHILD, "$extended_search_cmd |") or
+	    	die("Could not run $extended_search_cmd\n");
+		
+	    while (<CHILD>) { print $_; }
+	    close(CHILD);
+	    next;   # Look for more files
+	}
+#
+#  Fork off a child to read the compressed data file, shove it through a pcap 
+# tool which will filter the data and write its output to a pipe.
+#
+   	if ($childpid = open(CHILD, "-|")) {
+#
+# This is the parent process. It will read from the pipe and write the
+# output to STDOUT.
+#
+      	      while (<CHILD>) {
+                     print $_;
+#                     print $line_hdr, $_;
+      	      }
+      	      close(CHILD);
+   	} else {
+
+#
+# This is the child process. $search_cmd is the command passed by (x)search.cgi
+# to specify what we want to search with. This way pat_search.pl doesn't need to
+# know what we're searching with.
+#
+
+      	STDOUT->autoflush(1);
+      	$open_sub->($file_name) || die ("Unable to open $file_name: $!\n");
+      	$pid = open(FIND,"|$search_cmd") or 
+             die("Cannot start searching process.");
+
+#
+# Our output command is open, unzip a buffer load,
+# and feed it to the search command.
+#
+      	$blksize = 32768;
+      	until ($end_of_file->()) {
+         	$read_len = $read_sub->($buf, $blksize);
+         	$write_len = $read_len;
+         	$offset = 0;
+         	while ($write_len ) {          # Handle partial writes.
+            	$written = syswrite(FIND, $buf, $write_len, $offset);
+            		die("System write error: $!\n")
+               	unless $written;
+            	$write_len -= $written;
+           	 $offset += $written;
+         	}
+      	}
+      	close(FIND);
+      	$close_sub->();
+      	exit 0;
+   	}
+   }
+# 
+exit 0;

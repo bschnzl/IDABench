@@ -1,0 +1,2439 @@
+<!doctype linuxdoc system>
+
+<article>
+
+<!-- Title information -->
+
+<title>IDABench v1.0 Documentation
+<author>George Bakos, with contributions from Doug Hill, ISTS - Dartmouth College. <tt>idabench_dev@ists.dartmouth.edu</tt>
+<date>Revision: 1.0 Date: 2003/06/27
+<abstract>
+This document describes the IDABench intrusion analysis framework, including
+architecture, installation and configuration, extension and troubleshooting.
+</abstract>
+
+<!-- Table of contents -->
+<toc>
+
+<!-- Begin the document -->
+
+<sect>Introduction<label id="intro">
+
+<p>
+Welcome!
+
+<sect1>Overview<label id="overview">
+<p>
+IDABench is a pluggable framework for intrusion analysis. Network traffic is
+captured on one or more sensor systems, then securely copied to a central
+analyzer for detailed scrutiny on an hourly and ad-hoc basis. Libpcap-based
+tools, such as tcpdump and ngrep, are called to examine the captured network
+traffic against sets of predefined filters. As events of interest are
+identified, either within IDABench or otherwise, historical packet records can
+be queried for details of previously unreported activity.  Unlike most
+rule-based intrusion detection systems, the lack of a matching rule (filter)
+only affects the hourly report; the original network traffic crossing a
+sensor's field of view is stored for later review.
+
+<p>
+IDABench is NOT intended to be an intrusion detection system, although it can
+be used as such. One of the primary design goals was to provide intrusion
+analysts easy access to the tools and utilities that they already are familiar
+with through a convenient web interface. As access to other libpcap tools is
+desired, lightweight plugins can be written and installed without modifying
+existing IDABench code. The only limitation is that the new tools must be able
+to read packets that were captured using tcpdump, or some other libpcap
+sniffer.
+
+<sect1>Heritage and naming<label id="naming">
+<p>
+Although this is not to be confused with the excellent SHADOW IDS, much of the
+code is directly from, or based on, the Naval Surface Warfare Center, Dahlgren
+Division's SHADOW versions 1.7 and 1.8. To avoid potentially stepping on toes,
+and causing great confusion, we've used IDABench (formerly ShadowIAS), and
+named files and directories accordingly. Current SHADOW users should be fairly
+comfortable with the basic architecture, although there have been significant
+changes, some of which are which are outlined below.
+
+<p>
+Right up front, the ISTS IDABench team thanks everyone who has contributed to
+both IDABench and SHADOW, and especially J. Fredrick Kerby of the Naval Surface
+Warfare Center, Dahlgren Division and Stephen Northcutt of the SANS Institute
+for their support.  Stephen is one of the finest intrusion analysts on the
+planet, and the original Shadow architect and team leader. Fred is the hand on
+the wheel for NSWC/DD's IS Security section and provided sound guidance to us
+right from the start. Cheers! 
+<p>
+See the <ref id="contributors" name="Contributors"> section for a more complete roundup.
+
+<sect>Version 1.0 Features<label id="features">
+
+<sect1>Ease of installation<label id="ease">
+<p>
+IDABench uses a pair of installation scripts (install_sensor and
+install_analyzer) to check for required and optional dependencies, prepare the
+system, install the IDABench components and start the various processes.  To
+install a basic one-sensor system, configuration requirements are minimal, the
+majority of which can be accomplished before installation. The configuration
+files, idabench.conf and sensor.conf, instruct the install utilities where to
+place the components, account names to use, and most other settings. After
+installation, a simple crypto key exchange will enable the sensor/analyzer
+communications. If both the sensor and analyzer are to occupy the same physical
+machine, although this is not recommended, one of these key exchanges is taken
+care of by the analyzer installer. See the <ref id="sensorinstall"
+name="Installation"> sections for the nitty gritty.
+
+<sect1>Modular, pluggable design<label id="modulardesign">
+<p>
+IDABench was designed with customization in mind. Different analysts will want
+to twist and turn their data in different ways, so we tried to make it a fairly 
+simple task to modify and extend the capabilities of this workbench. There are
+two primary means to this end:
+
+<p>
+First, when the IDABench analyzer pulls raw tcpdump files from each sensor
+site, it passes this data through analysis tools to produce hourly reports.
+You can add IDABench Hourly Analysis plugin tools which will process this
+stream to produce additional or alternative reports or report sections.
+
+<p>
+Second, IDABench allows you to run search tools on tcpdump data from any range
+of hours and view the result on a web page.  It is easy to incorporate search 
+and analysis tools of your own as IDABench search plugins. Examples have been 
+provided for tcpdump, ngrep, and tethereal. A uniform, table driven method of 
+specifying search forms is used to create the form which will be displayed to 
+analysts.  The submitted values can be validated by your plugin script and 
+passed as arguments to your search tool, with the results piped to a web page 
+in tabular, chart or libpcap binary form.
+
+<p>
+By adding plugin capabilities, we hope to realize the following advantages:
+<itemize>
+<item> You can add reports and search tools without having to study a lot of
+  IDABench code.
+<item> Analysts can get the data they need through the web interface, reducing the
+  number of users who need accounts on the analysis computer.
+<item> The next release of IDABench may be easier for you to install if you have
+  been able to avoid editing core Shadow scripts.
+<item> Users may share and contribute plugins for future releases.
+</itemize>
+
+<p>
+The only plugins that are shipping right now are ngrep, tcpdump, findscan
+(hourly only) and tethereal (search only). You will need the associated binaries
+installed to use them, though. If a site has filters configured for a plugin
+that is not properly installed, the search tabs and hourly sections will appear in
+the webpages, but let you know something is wrong.
+<p>
+The Plugins section has details on writing your own hourly and search plugins.
+
+<sect1>Output type and formatting<label id="outputformat">
+<p>
+The default output from IDABench is textual, presented as HTML pages served by
+an httpd on the analysis system. This textual output is organized with each
+plugin's output appearing in an easy to identify section. Navigation links are
+provided at the top and bottom of each page for convenient movement through the
+hourly output. The default search output is also text, but other output forms
+are available. When a custom query is processed by a search plugin, the text is
+returned to the analyst's browser with the search form reappearing at the end of
+her results, pre-populated with the field selections that yielded that result.
+Subsequent, modified queries are then easily entered by changing only those
+fields that need to be refined to produce the next query.
+
+<p>
+Search results can also be returned in either pcap binary or graphical chart
+form. Binary output is a new pcap binary dumpfile containing ONLY those packets
+which matched your query specification. This new, single, dumpfile is then
+presented for download so that the analyst can perform follow-on analysis on his
+local system, without ever needing a shell account on the IDABench analysis
+machine. Tools that may be of use locally may include graphical analyzers such
+as etherape, ethereal, etc.
+
+<p>
+Graphical output of queries, via gnuplot, provides the analyst with a view of
+the query that may reveal visual patterns of activity otherwise missed. For
+example, fluctuations in the rate of a denial of service attack may provide
+insight into the techniques used by the attacker. Query results can be plotted
+using several different graph types, and can be scaled in packets per second, 
+minute, hour or day. Be aware that counting packets per unit time across a
+range of hours, days or weeks can take quite some time. Big queries require
+patience as well as horsepower. There is no substitute for RAM and CPU speed.
+See the <ref id="hardwarereq" name="Hardware Requirements"> sections for recommendations.
+
+<sect1>Sensor<label id="sensorfeat">
+<p>
+The sensor component of IDABench is a pair of Perl scripts that manage packet
+capture operations for later retrieval by an analyzer. It is suitable for use
+alone or in conjunction with the IDABench Analyzer, which automates the
+retrieval and access to this packet data.  
+
+<p>
+Sensor installation is designed to be as painless as possible, allowing you to
+rapidly deploy usable sensors with minimal configuration. The <tt/install_sensor/
+script and <tt/sensor.conf/ provided contain sensible defaults for most settings,
+and, unless overridden by <tt/sensor.conf/ settings, will attempt to locate the
+dependencies during the installation process.
+
+<p>
+Previous hourly tcpdump capture mechanisms would overwrite partial hour
+dumpfiles if restarted within that hour. Others would abort, rather than
+overwrite. With IDABench sensor, if a dump session is aborted and then resumed
+within the same hour, the partial dumpfile will be renamed and IDABench sensor
+will resume capturing. At the end of the hour, these partial files will be
+merged into one before the analyzer retrieves it, if either mergecap or
+tcpslice is available.
+
+<sect1>Security<label id="secfeat">
+<p>
+Myriad security issues have been considered, many of which pertain to the
+sensor/analyzer/analyst trust model: 
+
+<itemize>
+<item> Few, if any, analysts will need shell accounts on the IDABench analyzer
+  computer, as query results can be presented to them as binary dumpfiles via
+  HTTP. 
+
+<item> By setting the owner of the hourly sensor files to a non-privileged user, the
+  analyzer need not have root privileges to retrieve and manage dumpfiles on
+  the sensor(s).  
+
+<item> User input via cgi scripts is validated robustly, and data returned from the
+  analysis processes is validated by the plugins (in the transform and
+  aggregate subroutines) before display.
+</itemize>
+
+<sect2>A note on system hardening
+<p>
+IDABench does not make any efforts to harden your sensor and analyzer computer
+systems. It is the responsibility of the installation team or individual to
+adequately prepare these computers to operate in a potentially hostile
+environment, and must recognize that the IDABench components will likely be
+actively targeted by any attacker who has knowledge of their presence.  Guy
+Bruneau has prepared an excellent secure SHADOW deployment package that could
+be adapted to support IDABench (http://www.whitehats.ca). 
+
+<p>
+Additional resources to aid in system hardening include:
+Bastille Linux (http://www.bastille-linux.org),
+The SANS Institute Security Reading Room (http://www.sans.org/rr), 
+AusCERT Unix Security Checklist (ttp://www.auscert.org.au/render.html?cid=1920)
+
+<sect1>File system<label id="filesysfeat">
+<p>
+IDABench is self-contained in an internal file system hierarchy that generally
+adheres to the Filesystem Hierarchy Standard (http://www.pathname.com/fhs/). By
+this, we hope that anyone wishing to install IDABench in a chroot jail will
+encounter few headaches; perhaps in our spare time (hehehe) we'll have a go at
+it ourselves. The IDABench root directory can be anywhere on the system by
+simply specifying the target location in the <tt/idabench.conf/ file prior to
+installation. The target directory will be created and all necessary components
+moved into it by the install_analyzer and install_sensor scripts. Common
+locations are <tt>/usr/local/idabench</tt> and <tt>/opt/idabench</tt>.
+
+<p>
+The <tt>&lt;IDABench root>/doc&gt;</tt> directory contains specific documentation for the various
+components, including a subdirectory, "historical", which holds docs specific
+to the NSWC/DD SHADOW releases as well as some general analysis guidance.
+
+<p>
+Analyzer configs are in <tt>&lt;IDABench root&gt;/etc</tt>, with a separate directory for each
+"site", then separate directories in that site for each tool that you want to
+use. Read the comments in <tt>etc/idabench.conf</tt> and
+<tt>etc/site0/site.ph</tt>
+
+<p>
+The <tt>&lt;IDABench root&gt;/lib</tt> directory contains shared modules, plugins, and headers
+used by the various analyzer scripts.
+
+<p>
+<tt>&lt;IDABench root&gt;/bin</tt> contains the actual Perl scripts that do the bulk of the
+analyzer work.
+
+<p>
+The <tt>&lt;IDABench root&gt;/var</tt> directory contains logs, a tmp directory for certain
+volatile content, and a www directory. The www contents may be installed
+elsewhere on the analyzer, if desired. 
+
+<p>
+Finally, the sensor, if installed, gets its own subdirectory, to easily
+differentiate it in cases where both sensor and analyzer are installed on the
+same machine. These single-host installations, although perfectly legitimate,
+are not recommended for performance reasons.
+
+<sect>Concepts of Operation<label id="concepts">
+<p>
+IDABench isn't an intrusion detection system. It's not an analysis tool. In all
+honesty, it doesn't really DO anything. Instead, IDABench provides a convenient
+workbench for human analysts to explore network events using a myriad of tools
+and techniques. If a certain analysis utility isn't available in IDABench, a
+plugin API simplifies its integration.
+
+<sect1>Raw data capture<label id="rawcapture">
+<p>
+IDABench sensors are installed at network ingress/egress points where malicious
+activity is likely to traverse. The DMZ (Demilitarized Zone) is the area
+physically between the route into your network and the filtering systems
+emplaced to defend it. This is the most beneficial location to deploy a sensor,
+as the majority of malicious activity (that network packet analysis is suited 
+to) will traverse this segment. Any other untrusted/trusted network border is a
+candidate for sensor deployment.
+<tscreen><verb>
+  BIG BAD                     (DMZ)                 SOFT SQUISHY
+ UNTRUSTED -------- ROUTER ---------- FIREWALL ---TRUSTED INTERNAL
+  NETWORK                       v                     NETWORK
+                                v
+                                v (sniffing only)
+                                v
+                                v
+                             IDABench ------------ IDABench
+                              Sensor               Analyzer
+</verb></tscreen>
+The IDABench sensor is simply any Unix-like system that runs a libpcap-based
+sniffer program (tcpdump) to record all of the traffic that traverses the
+network segment it is monitoring. The appropriate network interface is placed
+in promiscuous mode by the sniffer so that all traffic, regardless of source or
+destination address, is available for capture. That captured data is compressed
+on the fly for short- term storage and named according to the date-time group
+of the current hour.  Each hour, using crond(8), the sensor is re-initialized,
+so that the previous hour's file is closed out and a new file begun. In this
+way, the otherwise unwieldy volume of packet data is made available in somewhat
+more bite-sized chunks.
+
+<p>
+To lessen the risk of sensor compromise, a special account is created on the
+sensor and ownership of these dumpfiles is changed to that user. When the 
+dumpfiles are retrieved by the analyzer, this account is used. 
+
+<p>
+This capture process is controlled by the <tt/>sensor_driver.pl/ script. There
+are two required parameters:
+<tscreen><verb>
+[root@spleen sensor]# ./sensor_driver.pl 
+        Usage: ./sensor_driver.pl <start|stop|restart> <ALL|site1 . . .>
+</verb></tscreen>
+The first speaks for itself. The second parameter instructs 
+<tt/sensor_driver.pl/ which "site"'s sniffer should be started or stopped. 
+
+<sect1>Partial captures<label id="partialcap">
+<p>
+If a dump session is aborted and then resumed within the same hour,
+IDABench will rename the previous partial logfile by appending MMSS to the 
+filename root. Here's an example: 
+<quote>
+The current dumpfile is <tt/tcp.2003032111.gz/. The ppp interface being
+monitored goes down, killing the tcpdump session.  When the interface resumes
+operation at 11:23:01, the interface control script includes a line to restart
+<tt/sensor_driver.pl/. IDABench will rename the original file
+<tt/tcp.2003032111.2301.gz/ and a new <tt/tcp.2003032111.gz/ is initialized.
+</quote>
+
+<p>
+Although not required, if you have either tcpslice or mergecap installed on
+your sensor, IDABench will enable merging of those partial hourly dumpfiles, or
+"logbits". Of the two, mergecap is preferred, as it natively deals with
+compressed data, and is more fault tolerant. Without them, the logbits will
+remain on the sensor until removed manually, or by the analyzer's <tt/cleanup.pl/. 
+<p>
+There are two times that the logbits will be considered for merging:
+<enum>
+<item>When <tt/sensor_driver.pl/ is executed with the "stop" parameter
+<item>When <tt/sensor_driver.pl/ is executed with the "start" or "restart" parameter 
+(they are synonymous) AND the current hour is DIFFERENT from the hour when the 
+logbits were created. This condition exists at the top of every hour when cron 
+restarts the sensor.
+</enum>
+
+<p>
+An added benefit of this behavior is the ability to add additional "sites" on
+the fly. By adding an additional "SITE_x" section to the <tt/sensor.conf/ and 
+running <tt/sensor_driver.pl restart ALL/, partial dumpfiles are retained, the new
+site is added to the logging directory and the sniffers are (re)started.
+
+<sect1>Raw data retrieval<label id="rawretrieval">
+<p>
+The sensor's hourly dumpfiles don't do us much good unless we can open them up
+and start scrutinizing their contents. Instead of placing that load on
+the sensor itself (possibly leading to packet loss, if analysis loads are
+high), the IDABench analyzer reaches out to each sensor and retrieves the
+dumpfiles.
+<p>
+Secure Shell (SSH or OpenSSH) is used to authenticate the analyzer as well as
+to encrypt the packet data in transit.  The analyzer asks the sensor for the
+date/time group of the last dumpfile, then uses <tt/scp(1)/ to retrieve it. No
+passwords are used in that exchange, as the analyzer is configured with a
+special user account who's public encryption key is placed on each sensor.
+
+<sect1>Analysis<label id="analysisconcepts">
+<p>
+The IDABench analyzer is a framework for libpcap-based analysis tools to be
+accessed via an easy-to-use web interface. The two main components are
+<tt/fetchem.pl/ and <tt/search.cgi/. These two are run by <tt/crond(8)/ or
+<tt/httpd(8)/, respectively, and use plugins to interface with analysis tools
+such as tcpdump.  The results are formatted by the plugins and presented to the
+analyst in html pages containing text, graphics, or links to resultant binary
+content.
+
+<tt/fetchem.pl/ is responsible for retrieving the hourly dumpfiles from the
+sensor(s) and making pretty things happen on an hourly basis. It is run as the
+IDABENCH_USER according to that user's own crontab. Once the file has been
+secure copied to the analyzer, <tt/fetchem.pl/ runs the necessary plugin 
+binaries. These are determined based on individual site configuration. The
+dumpfile is decompressed into RAM in fixed-size blocks and fed to the
+plugin-driven analysis programs, whose results are arranged in the hourly
+output html file, sorted by plugin name.
+
+<quote><it>
+Hint: if you create an array called "pluglist" in a site.ph file, it will
+override the sorting behavior, giving you more control over the appearance of
+your webpages.
+</it></quote>
+<p>
+Hourly plugins are described later in this article.
+
+<p>
+<tt/search.cgi/ is the primary ad-hoc query interface for IDABench, and builds
+web forms based on search plugins present. The more plugins you have installed,
+the more tabs will appear across the top of the search webpage. 
+
+<p>
+When the search form is submitted, the appropriate plugin is called to produce
+a commandline that will execute its associated utility. That commandline is
+passed as a parameter to the script <tt/pat_search.pl/, which is responsible
+for accessing the archived packet logs and feeding them to the analysis
+program.
+
+<p>
+Output from the selected analysis utility is then prepared for either html
+display or further post processing (i.e. graphic generation), by an output
+subroutine in the plugin.
+
+<sect1>Files maintenance and cleanup<label id="filesmaint">
+<p>
+I'm as much of a pack rat as the next geek, but storage resources are finite,
+and there's a time to clean house. IDABench will take care of some of this
+housekeeping for you, but other tasks will need manual attention.
+
+<sect2>Sensor files<label id="sensormaint">
+
+<p>
+The sensors have no mechanism for deletion of files, regardless of age. The
+task of sensor cleanup is left to the analyzer, via <tt/ssh/. This protects
+against accidental data loss in case of analyzer network failure.
+The analyzer script responsible for deleting old files on the sensor(s) is
+aptly named <tt/cleanup.pl/. If your sensors are rather littered with old files
+for one reason or another, running <tt/cleanup.pl -h/ as the IDABENCH_USER
+will provide you with the syntax necessary to manually cleanup files
+individually or those created prior to a certain date.
+
+<p>
+<sect2>Analyzer files<label id="analyzermaint">
+
+<sect3>packet logs
+
+<p>Analyzer storage has always been a challenge with raw packet logger systems
+like IDABench. As storage resources are limited, a decision must be made as to
+when data can be deleted, reduced, or relocated to ensure the continued health
+and reliability of the system.
+<p>
+<tt/editcap/, part of the <tt/ethereal/ distribution, is a utility that makes 
+changes to existing libpcap dumpfiles. One of the edit options available is
+snaplen. By specifying a new snaplen of 38 and iterating through all files that
+have surpassed a certain age, all ip header information and 8 bytes of the next
+layer header are preserved, while reducing the size of archived files
+significantly. <tt/editcap/ can operate directly on compressed files, but must
+output to a new filename or stdout, thus a bit of tempfile tapdancing needs to 
+take place in order to automate this process.
+
+<p>
+<sect3>temporary files
+
+<p>
+IDABench generally cleans up after itself during hourly and search analyses,
+but certain things do remain for a period of time. Image files and binary
+results of ad-hoc searches are kept in the IDABENCH_WEB_SPOOL_LOCAL
+directory until they age past the CLEAN_TIME as set in <tt/site.ph/. The
+search scripts are responsible for cleaning up after themselves, including the
+spool directory.  If there are old files in the spool directory, it is most
+likely because no searches producing graphical or binary output have been run
+recently.
+
+<sect>Requirements<label id="Requirements">
+
+<sect1>Hardware<label id="hardwarereq">
+
+<p>
+
+<sect2>Sensor<label id="sensorhardware">
+<p>
+IDABench can survive quite nicely on fairly inexpensive equipment. There are
+plenty of installations using boneyard salvaged boxes as sensor platforms. I was recently at a site
+where 12 outdated, donated, desktop machines were collecting nearly 1.5GB per hour with
+negligible packet loss. Storage of all that was a different matter! Consider,
+at a minimum:
+<verb/
+Pentium-class or SPARC-2 processor
+64MB RAM
+2 fast drives > 10GB, mirrored
+2 server-grade network interfaces
+/
+
+<p>
+I personally recommend inexpensive server-class systems for sensors. Places
+that you shouldn't skimp are network interfaces and reliable storage. The
+additional expense of a pair of mirrored drives is a drop in the bucket
+ when the you consider the alternative.  :-(
+
+<p>
+Sensor system (one of ours here at ISTS):
+
+<itemize>
+<item> IBM E-server x300 1U-rackmount
+<item> PIII-1GHz
+<item> 256MB PC100 RAM
+<item> (2) IBM Deskstar 82GB 7200RPM ATA/100 in software RAID-1 (overkill!)
+<item> (2) Intel 82557 Ether Express Pro 100 interfaces (on-board)
+</itemize>
+
+
+
+<sect2>Analyzer<label id="analyzerhardware">
+<p>
+The IDABench analyzer is a workhorse. Plain and simple, the more hardware you
+can throw at it, the better its performance will be. The minimum depends on
+the volume of traffic you are monitoring.
+
+<p>
+Monitoring two T-1 served networks at an average of 40% utilization and three sensors, we
+achieve acceptable performance using the following inexpensive analyzer setup:
+<itemize>
+<item> Single Pentium III 1.5GHz processor
+<item> 256MB RDRAM
+<item> 256MB linux swap partition
+<item> 73GB IDE for packet data and website storage
+</itemize>
+
+<p>
+Using a snaplen of 128 on the two main sensor sites and a snaplen of 1514 on a low
+traffic third, we collect between 500MB and 1GB per day. Depending on the
+capacity and utilization of the network segments your sensors are monitoring,
+you could see considerably more.
+
+<p>
+On the other hand, my home network is being served very nicely by a Cyrix P120+
+firewall/proxy/sensor system with 64MB of RAM and a very meager disk. The
+analyzer is my nice fat Athlon desktop workstation and I can tear through a
+month's worth of data in the time it takes to brew a pot of coffee. YMMV.
+
+<sect1>Operating system and software<label id="ossoftware">
+
+<sect2>Sensor<label id="sensorsoftware">
+<p>
+There are a number of dependencies that need to be fulfilled to achieve a
+working sensor; most modern Linux distributions, and many other Unix-like
+operating systems, ship with the necessary components. These are:
+
+<verb>
+Name			Available from
+----			--------------
+tcpdump                 http://www.tcpdump.org, http://ee.lbl.gov
+Perl 5x	                http://www.perl.com, http://www.cpan.org
+bash                    http://www.gnu.org/software/bash
+gzip	                http://www.gnu.org/software/gzip
+sshd                    http://www.openssh.org (openssh), www.ssh.com (SSH2)
+</verb>
+
+sshd note:
+Although the commercial SSH product is compatible, we recommend using the
+open-source openssh daemon. This will avoid any potential license issues and
+requires no public-key conversions before exchanging keys between analyzer and
+sensor(s).
+
+<p>
+Optional binaries that are handy if the sensor periodically restarts. See 
+PARTIAL CAPTURES, below.
+
+<verb>
+mergecap (bundled with ethereal)	http://www.ethereal.com
+tcpslice		http://www.tcpdump.org/related.html, http://ee.lbl.gov
+</verb>
+
+<sect2>Analyzer<label id="analyzersoftware">
+<p>
+Any Unix-like operating system is acceptable, as long as you meet the software
+requirements listed below. Most modern Linux distributions come with all the
+necessary pieces, many of which are installed by default. The analyzer has been
+installed and tested on Redhat 7.2/8/9 with minimal massaging. If any of these
+requirements are not met, the install.analyzer script will let you know.
+
+<p>
+Necessary things:
+<itemize>
+<item> Perl 5.6.1 or newer
+<item> Perl modules: Getopt::Long, POSIX, Time::Local, Socket, IO::Handle, File::Basename, Cwd, DB_File, Digest::MD5, CGI, File::Temp
+<item> Apache httpd with mod-cgi
+<item> Secure Shell - openssh (preferred) or SSH2
+<item> crond 
+<item> gzip/gunzip
+</itemize>
+
+<p>
+Things that will make the IDABench analyzer (and you) really happy are:
+
+<p>
+<itemize>
+<item>tcpdump - http://www.tcpdump.org 
+<p>
+	Tcpdump is historically the bedrock upon which network analysis is
+	built, and with good reason; tcpdump is one of the most flexible packet
+	analysis tools available. This release of IDABench requires tcpdump 
+	for the sensor, but not so for the analyzer. Without it, the tcpdump
+	plugin will not return any output, potentially limiting your 
+	capabilities, but hey, it's your data.
+
+        We recommend a version other than Redhat's, but if you insist, it will
+        work, as long as all of your sensors and analyzers talk the same, or a
+        compatible version. Even though the output format is different, the
+        tcpdump.org CVS development versions work too, so don't be afraid to
+        try them out. With the "Very verbose" option in the search window
+        selected, your analysts get to ooh and aah at all the neato protocol
+        breakouts.
+
+<item>ngrep - http://www.packetfactory.net <p> Jordan Ritter's "network grep"
+allows you to specify regular expressions in both ascii and hexadecimal to be
+matched against in the packet logs. This can be useful in identifying certain
+content-specific attacks, as well as in displaying content in your output.
+
+<p>
+<it>
+Here's a trick: Configure your routers to send syslog output to a host
+that isn't running a syslog daemon. Configure your sensor with a separate site
+called "access-logs". Use a filter on the sensor like: "udp and port 514 and
+src &lt;router&gt; and dst &lt;dummy&gt;" with a fat snaplen.  Now on the
+analyzer, create a corresponding site like: &lt;IDABench
+root&gt;/etc/sites/access-logs with an ngrep filter that will match on the
+IPACCESSLOG and/or other strings, perhaps on certain list numbers.  Now, you
+have the ability to easily correlate router/PIX events in the IDABench console,
+including graphical representation (see gnuplot, below)
+</it>
+
+<item>ethereal - http://www.ethereal.com
+<p>
+Ethereal comes with tons of really neat goodies
+that IDABench puts to use, if installed. Mergecap is, by far, far superior over
+tcpslice for the merging of dumpfiles, and both the sensor(s) and analyzer
+benefit from this. The sensor component can resume collecting packets if
+stopped and restarted, then reassemble the partial logfiles using mergecap (or
+tcpslice) before they are "fetched" by the analyzer.  On the analyzer, we can
+also use mergecap for sweet returns. If an analyst wishes to have direct access
+to the binary dumpfiles to dig a little deeper that she can in the web
+interface, it is no longer necessary for her to have a shell account on the
+analyzer system. By selecting "binary" output, the results from the many hours
+of data that her query spans are merged and presented for download.  Tethereal,
+or "text ethereal", is made available in the search tabs if the plugin is
+present. NOTE: tethereal applies quite a lot of scrutiny to every packet before
+deciding to display or discard it. This is a slow search method! The plugin is
+very rough at this time; we may write a new one that offers pre-filtering with
+tcpdump/snort/etc. before handing that refined dataset to tethereal. A fair
+solution, for now, is to use another tool to search, then open the binary
+results of that search locally using ethereal.
+
+<p>
+As always, it is recommended that you compile mergecap from validated source
+code, however, if you insist on using Redhat's ethereal rpm, be sure it is at
+least version 0.9.11, or you'll find that mergecap isn't included.
+
+<item>gnuplot - http://www.gnuplot.info
+<p>
+View the results of your queries graphically. Need I say more?
+
+<item>tcpslice - http://www.tcpdump.org/related 
+<p>
+See the discussion about mergecap in the ethereal section, above. Tcpslice will
+do the job of merging partial dumpfiles, albeit less elegantly, if you don't
+like mergecap. We highly recommend that you use a tcpslice that is linked
+against the same version of libpcap that the sensor uses.  If file merging is
+failing, please upgrade your tcpslice before posting to the mailing list. 
+
+</itemize>
+
+<sect>Sensor Installation<label id="sensorinstall">
+<sect1>Quick install<label id="sensorquick">
+<p>
+To rapidly install a sensor, these steps should do the trick, assuming all 
+dependencies are satisfied.
+
+<enum>
+<item>$ su -
+<item><tt># chdir /tmp</tt>
+<item><tt># tar -zxvf sensor-1.0.tar.gz</tt>
+<item><tt># cd ./sensor-1.0</tt>
+<item><tt># ./install_sensor</tt>
+<item>read any errors reported and adjust as necessary, then repeat 4.
+If you are running some form of Linux, the sensor should be monitoring
+interface eth0. <tt/ps -ef/ should report <tt/tcpdump/ is running. Other
+operating system/hardware combinations need a different interface name in
+<tt/sensor.conf/.  <p> Have a look at <tt>/var/log/idabench/site0</tt>. It
+should look like:
+
+<tscreen><verb>
+[root@sensorbox7 log]# ls -la /var/log/idabench/site0/
+total 36
+drwxrws---    2 root     idabench       4096 Mar 20 13:28 .
+drwxrws---    3 idabench idabench       4096 Mar 20 13:28 ..
+-rw-rw----    1 root     idabench         14 Mar 20 13:28 sensor.date
+-rw-rw----    1 root     idabench          6 Mar 20 13:28 site0.pid
+-rw-rw----    1 idabench idabench      16384 Mar 20 13:29 tcp.2003032013.gz
+-rw-rw----    1 root     idabench         51 Mar 20 13:28 tcpdump.err
+</verb></tscreen>
+
+<p>
+On the analyzer:
+<item>Add a &lt;this site> directory and <tt>&lt;this site>/site0.ph</tt> to <tt>&lt;idabenchroot>/etc/sites/</tt> if it doesn't exit yet.
+<item>Securely copy the analyzer idabench user's ssh public key to the sensor
+<item>Create a <tt>&lt;this site></tt> directory in <tt>&lt;idabenchroot>/etc/sites/</tt> and configure the <tt/site.ph/ and plugin filters appropriately.
+</enum>
+See the <ref id="configanalyzer" name="Analyzer config"> section for additional details.
+
+<p>
+
+<sect1> More detailed sensor installation<label id="sensorinstdetails">
+<p>
+For the best understanding of what goes into an IDABench sensor , we recommend reading
+the scripts and inline comments. Here is an overview of the scripts and what
+the installer does:
+
+<sect2>sensor.conf
+<p>
+This file is read by both the install_sensor and sensor_driver scripts. It 
+contains locations of preferred binaries, sensor-wide parameters, and 
+definitions of each sensor "site". Jump to <ref id="configsensor" name="Sensor
+config"> for a field-by-field description.
+
+<sect2>sensor_driver.in
+<p>
+Here's the meat and potatoes(sp?) of an IDABench sensor, the wrapper that starts
+and stops the actual packet capture process and manages the resultant dumpfiles in
+preparation for the analyzer(s)'s retreival. The .in version of sensor_driver 
+is a template used to create the .pl version during install. <tt/sensor_driver.pl/ 
+is called by the init.d script to start the sensor, and by <tt/crond(8)/ to restart it hourly.
+
+<p>
+Sensor_driver.pl requires two commandline parameters, stop/start/restart and
+&lt;sitename(s)>/ALL. For most installations, <tt/sensor_driver.pl start ALL/ is what
+should be in the crontab. Start and restart are synonymous. In both cases, any 
+existing packet capture processes for the specified "site" is stopped and a new
+one is started. In earlier versions of IDABench, <tt/sensor_driver.pl/ would call 
+<tt/stop_logger/, then <tt/start_logger/ to accomplish this task. To remove the latencies
+incurred during Perl's runtime compilation of <tt/start_logger/, thus possible packet
+loss, these have been incorporated into <tt/sensor_driver.pl/ as subroutines.
+
+<sect2>sensor_init.in
+<p>
+This is a template used to create the system startup script. The only change
+made to it during install is the SENSOR_PATH line. On Linux and Solaris the 
+<tt/init.d/ script <tt/sensor/ is placed in the appropriate location for your system by
+ install_sensor and, a symbolic link is created in the <tt/rc.X/ directories. In 
+FreeBSD, the script is created as <tt>/usr/local/etc/rc.d/idabench.sh</tt>
+
+<sect2>site0.filter
+<p>
+See SITEx_FILTER in the Sensor config section.
+
+<sect2>install_sensor
+<p>
+The installation script. It has been tested on various Linux distributions,
+FreeBSD 5.0, and Solaris 8. Here's a summary of its actions:
+
+<enum>
+<item>Read current PATH and extend it to include other likely program locations.
+<item>Use which(1) to locate executable dependencies in the extended path.
+<item>Use uname(1) to identify OS.
+<item>Read settings from sensor.conf, possibly overriding defaults and 'which'ed paths
+<item>Validate program locations.
+<item>Create installation target location.
+<item>Create user account that will own the packet capture files.
+<item>Confirm user home directory. (Solaris users, see the discussion of
+SENSOR_USER_HOME, in <ref id="configsensor" name="Sensor config">)
+<item>Create a .ssh directory that will ultimately receive the analyzer user's key,
+and set its mode (permissions) to 0700.
+<item>Create log directory into which all site specific directories will be placed.
+<item>Create and/or update root's crontab to restart the packet capture hourly, if 
+needed.
+<item>Copy sensor_init.in to appropriate startup script location, editing SENSOR_PATH
+to reflect the actual installation path.
+<item>Run chkconfig, if linux, or create symbolic link in /etc/rc2.d -> sensor if 
+Solaris. This step isn't necessary in FreeBSD.
+<item>Copy all of the files in the current directory to the installation path, if not
+currently there.
+<item>Set permissions on scripts to 0755
+<item>Run the init script.
+</enum>
+
+<sect1>Uninstalling<label id="uninstallsensor">
+<p>
+Stopping the sensor is relatively simple, removing it is a bit more involved, 
+as there are a fair number of moving pieces.
+
+<sect2>Stopping
+<p>
+The startup script (possibly installed as <tt>/etc/init.d/sensor,
+/usr/local/etc/rc.d/idabench.sh, /sbin/init.d/sensor</tt>, etc.) accepts a
+commandline parameter "stop" which will kill site-specific tcpdump and gzip
+processes, and merge any partial logs, if merging is available.
+
+<verb>
+# <path to startup scripts>/sensor stop
+</verb>
+On many Linux distributions, you can use the <tt>/sbin/service</tt> script:
+<verb>
+# service sensor stop
+</verb>
+
+<p>
+To keep the sensor from restarting, you can either remove that script, or 
+on systems that use symbolic links in <tt/rc.X/ directories (Linux, Solaris), 
+remove that link.
+
+<p>
+On most Linuxes, this is fairly straightforward with <tt/chkconfig(8)/:
+<verb>
+# chkconfig --del sensor
+</verb>
+otherwise, you will need to:
+<verb>
+# rm /etc/rc*.d/S99sensor
+</verb>
+BSD variants do not use these symlinks, and require the script be removed, or
+the execute permission on that script be removed:
+<verb>
+# chmod -x /usr/local/etc/rc.d/idabench.sh
+</verb>
+
+<sect2>Removing
+<p>
+
+<enum>
+
+<item>Stop the sensor and remove the startup scripts as described above.
+
+<item>Delete the sensor scripts directory and its contents, the default location is <tt>/usr/local/idabench/sensor/</tt>
+
+<item>Delete the log directories, archiving their contents first, if desired. The default location is <tt>/var/log/idabench</tt>
+
+<item>Edit the root user's crontab (<tt/crontab -e/), removing the lines inserted by the installer. They are commented to ease identification.
+
+<item>Remove the SENSOR_USER and their home directory. <tt/userdel -r/ should do the trick.
+
+</enum>
+
+<sect>Analyzer Installation<label id="analyzerinstall">
+
+<p>
+Installation is designed to be as painless as possible, with minimal
+configuration necessary to put up an analyzer that talks to a single sensor.
+Adding additional sensor "sites" can be done either before or after
+installation with little additional configuration neccessary.
+
+<p>
+The "install_analyzer" script and etc/idabench.conf provided contain sensible
+defaults for most settings, and, unless overridden by idabench.conf settings,
+the installer will attempt to resolve dependencies when run.
+
+<sect1>Quick install<label id="analyzerquick">
+<p>
+Here's the down and dirty for those who need to get an analyzer up fast. If you
+wish to understand a little deeper, or just think it might be useful knowing 
+what is on your machine (what a concept), jump down to The grubby details. 
+
+<enum>
+<item>Extract the tarball in /tmp
+
+<item>cd IDABench-1.8
+
+<item>Optionally, edit etc/idabench.conf
+
+<item>Run install_analyzer. You will need to be root for this step. Be sure to
+read the feedback from the installer. It contains information about failed
+dependencies and additional steps that may be neccessary or optional, depending
+on your system or personal preferences.
+
+<item>Append /home/shaias/.ssh/id_dsa.pub to sensor user's
+.ssh/authorized_keys.  Don't put this in root's .ssh! That is a hole big enough
+to drive a truck through! All ssh and scp is done as non-priv users. See the
+sensor docs. This is done for localhost by the installer, in case you are
+putting up a single-host sensor/analyzer, .
+
+<item>Append the sensor's ssh host key to the analyzer IDABENCH_USER's
+.ssh/known_hosts file. One easy way to do this is to become the IDABENCH_USER,
+then manually ssh to the sensor as the SENSOR_USER. This should be done across
+a private or trusted network, then validated manually. IF THIS IS DONE ACROSS
+AN INSECURE NETWORK, A MAN-IN-THE-MIDDLE CAN INTERCEPT AND HIJACK THIS KEY
+EXCHANGE.  
+
+<item>Edit etc/sites/&lt;yoursite>/site.ph if necessary. Pay attention to the
+$SENSOR, $SENSOR_USER, and $SENSOR_DIR settings.
+
+<item>Edit the variables section in
+etc/sites/&lt;yoursite>/tcpdump/generic.filter, using hostnames or ip addresses
+specific to your site.
+
+<item>Become the IDABENCH_USER and manually run fetchem.pl with the -debug
+option, then have a look at the file &lt;IDABench root&gt;/var/log/fetchem.log
+for any errors.
+
+<item>Point a browser at http://localhost/idabench/
+
+<item>Sip champagne.
+
+</enum>
+
+<p>
+Now, in order to get something more specific to your site(s) from the analyzer,
+you will need to go into the subdirectories in etc/sites/&lt;yoursite>/ and edit
+the filter files there. See tcpdump-filters, ngrep-filters and findscan-filters
+in docs/ for instructions.
+
+<p>
+If you can't seem to get any output, try the -debug option when running fetchem
+as the IDABENCH_USER.
+
+<sect1>The grubby details<label id="analyzerinstdetails">
+
+<p>
+The main configuration file, idabench.conf, contains global configuration
+settings that affect all sites, scripts, and resultant web pages. It is read
+during installation, to determine the desired installation location as well as
+the location of preferred versions of dependencies. As it is heavily commented,
+please read through it carefully and adjust as necessary. The lower section,
+where paths are relative to those defined above, should be left alone for the
+vast majority of installations.
+
+<p>
+Fetchem.pl is run on an hourly basis, as scheduled in the IDABENCH_USER's
+crontab. It will read idabench.conf and determine the locations of the site
+configurations. After parsing the various etc/&lt;sitename>/site.ph files, fetchem
+uses ssh and scp to retrieve the most recent dumpfile from each sensor. This
+ssh, as well as all of fetchem.pl's other actions, is run as the IDABENCH_USER,
+thus your sensors must trust the IDABENCH_USER's ssh public key for
+authentication. See the <ref id="sshkeys" name="Secure shell keys"> section, below, for instructions.
+
+<p>
+The sites' configuration directories are then examined for plugin filters. For
+each plugin filter located, a child process is forked that will pass packet data
+to the appropriate libpcap tool for analysis. Once all of the children are
+alive and hungry, the hourly dumpfile is uncompressed and passed to them. Output 
+from the analysis tools is placed in a temporary location, then formatted for 
+display in a plugin-unique section in the hourly report for that site.
+
+<p>
+If the target directories for a new site do not yet exist, fetchem.pl will create
+them for you on the fly. By default, the location of all site specific
+directories is the IDABENCH_RAW_DATA_PATH as defined in etc/idabench.conf.
+
+<sect2>Installation
+
+<p>
+We strongly advise that you use the installation script, install.analyzer, as
+there are a number of files that it edits when run. If you must manually
+install, you will need to perform these edits yourself, or the analyzer will
+not run. Those files can be identified by the ".in" filename extension in the 
+installation package.
+
+<p>
+The installation script, install_analyzer, will create all necessary
+directories, user accounts, etc., but to do so, it needs to read configuration
+details from the file &lt;IDABench root&gt;/etc/idabench.conf. As that file is
+well commented, we'll save a few electrons and not detail the various settings
+here.  Make any changes necessary, paying attention to the first 10 items.
+Below them, all other settings are relative to those first 10 and should
+generally be left as they are.
+
+<p>
+The installer first performs a few inventories to ensure that the package is
+complete, and that the necessary dependencies are present. If a failed
+dependency check is critical, the installer will exit, alerting you of the
+problem. If it is non-critical, the installer will include the warning in the
+post-install summary. Similarly, if existing configuration files are found in
+the destination directories, they will NOT be overwritten, and warnings will be
+issued in the summary.
+
+<p>
+A user account, the value assigned to IDABENCH_USER in idabench.conf, will be
+created. This account is responsible for all of the hourly retrieval and
+analysis of packet data from the sensors. If the account exists, a summary
+warning will be issued after installation. A second account is necessary,
+although most likely already exists: the Apache web daemon user. This account
+is responsible for all ad-hoc searches and presentation of the results, as well
+as the hourly web pages, to the analysts. This account should be specified in
+the webserver's configuration file, httpd.conf. This file is NOT a part of the
+IDABench distribution, and does not need to be edited manually, except to
+enhance security. Webserver configuration is beyond the scope of this cruft.
+Please see http://httpd.apache.org/security_report.html for current and past
+security issues with the Apache httpd.
+
+<p>
+Unless it already exists, the installer will create a public/private openssh
+DSA key pair for the IDABENCH_USER for retrieving information and files from the
+sensor(s), as well as executing cleanup.pl. To facilitate single-host installs,
+it will then copy that public key to the IDABENCH_USER/.ssh/authorized_keys file
+and set appropriate permissions.
+
+<p>
+The following directories, as defined in idabench.conf, are then created (and
+permissions set) in preparaion of the file copy:
+
+<quote><verb>
+    $IDABENCH_BIN_PATH,
+    $IDABENCH_SITE_PATH,
+    $IDABENCH_SITE_PATH/$IDABENCH_SITE_DEFAULT,
+    $IDABENCH_SCRATCH_PATH,
+    $IDABENCH_LOG_PATH,
+    $IDABENCH_LIB_PLUGIN_PATH,
+    $IDABENCH_CGI_PATH,
+    $IDABENCH_RAW_DATA_PATH,
+    $IDABENCH_WEB_PAGES_PATH,
+    $IDABENCH_WEB_PAGES_PATH/$IDABENCH_SITE_DEFAULT,
+    $IDABENCH_WEB_SPOOL_LOCAL
+</verb></quote>
+
+<p>
+Now that the destinations are ready, the files are modified from their original
+".in" format, and written into their new homes. The following edits are
+performed:
+
+<itemize>
+
+<item>Web cgi files: The strings "IDABENCH_RELCGI_PATH" and
+"IDABENCH_RELHTTP_PATH" are replaced by their legitimate values from
+idabench.conf
+
+<item>Many files: The value of "$IDABENCH_PATH" is added early in many files so
+that they can find the configuration information at runtime.
+
+<item>lib/plugins/plugins.ph: Once the path to all search plugin binaries is
+determined, that information is added here to help speed things up a bit.
+
+</itemize>
+
+<p>
+The webserver configuration file, httpd.conf, will also be edited. After
+backing up the original file, the necessary configuration sections will be
+appended to the existing configuration file, unless a IDABench section already
+exists there. The webserver is then restarted and chkconfig is run to ensure
+webserver restart at next system boot.
+
+<p>
+Finally, any errors are summarized and a list of final warnings and additional
+steps are presented as the installer exits.
+
+<p>
+<sect2>Secure Shell keys<label id="sshkeys">
+
+<p>
+The IDABENCH_USER account will be copying several files from the sensor(s) to
+the analyzer. So that this can be accomplished by the <tt/crond(8)/, with no
+user interaction, we need another form of authentication.
+
+<p>
+Secure shell, whether OpenSSH or SSH2, can use a pre-distributed public
+encryption key for that authentication. <tt/install_analyzer/ generates a
+public/private key pair during installation for that user, if it doesn't
+already exist, to be used for that authentication method. Please be sure your
+sensor's <tt/sshd(8)/ is configured to allow public-key authentication. By default,
+most are. What remains is two steps: 
+
+<enum>
+<item>securely making the sensor(s) aware of the user's public key:
+
+<p>
+If both analyzer and sensor are using openssh, the simple way of doing this is
+merely using <tt/scp(1)/ to copy the the public key to the sensor, and renaming
+it (or appending it to the existing)
+<tt>/home/&lt;SENSOR_USER>/.ssh/authorized_keys</tt>.
+
+<p>
+If the sensors are using a commercial version of Secure Shell, you will first
+need to export <tt/id_dsa.pub/ with the following command:
+
+<tscreen><verb>
+ssh-keygen -ef /home/$IDABENCH_USER/.ssh/id_dsa.pub > analyzer.dsa_pubkey
+</verb></tscreen>
+and then copy that file to the sensor's <tt>/home/&lt;SENSOR_USER/.ssh2</tt> directory
+and append the following line to the sensor's <tt>/home/&lt;SENSOR_USER/.ssh2/authorization</tt> file:
+<tscreen><verb>
+key analyzer.dsa_pubkey
+</verb></tscreen>
+
+<p>
+Regardless of method used, all .ssh(2) files should have a permission mode of
+0600, or -rw----------.
+
+<item>making the analyzer aware of the sensor(s) public <it/host/ key(s):
+
+<p>
+The sensor's host key, <tt>/etc/ssh/ssh_host_key.pub</tt>, is used to identify
+the host (not user) when an ssh session is initiated. This file will be added
+to the IDABENCH_USER's <tt>.ssh/known_hosts</tt> file the first time ssh is
+run as that user. 
+
+<p>
+Once the user public key has been exchanged (above), you can then ssh to the
+sensor to pass the host key. As root, <tt/su(1)/ to the IDABENCH_USER and
+manually <tt/ssh(1)/ to the sensor(s). If the <tt/SENSOR_USER/'s name is
+different from the IDABENCH_USER, you will need to use the -l commandline
+switch when you ssh. You may be prompted to accept the host key before
+authentication takes place.
+
+<p>
+Another, possibly more secure, option is to manually add a
+line to known_hosts that contains the sensor hostname and/or ip address
+followed by the contents of the sensor's public host key file.  See the
+<tt/sshd(8)/ man pages, specifically the <tt/SSH_KNOWN_HOSTS FILE FORMAT/
+section, for a good discussion of this file.
+</enum>
+
+<p>
+<quote><it>Both of these operations should be carried out with a bit of threat
+awareness.  If a public key exchange is intercepted by a "man in the middle",
+substitute keys can be offered by the attacker, subverting your attempts at
+secure communications. Isolated installation networks, of course, are best. If
+this isn't possible because of physical distances, manual confirmation of key
+fingerprints is advised after key exchanges. To help defend against future
+attempts, the ssh_config option <it/StrictHostKeyChecking/ should be set on the
+analyzer.
+</it></quote>
+
+<p>
+If you are playing mix'n'match with ssh versions and can't authenticate as the
+SENSOR_USER to the sensor site(s), you may want to use Bill Stearns' wonderful
+ssh-keyinstall script: http://www.stearns.org/ssh-keyinstall/
+
+<sect2>fetchem.pl
+<p>
+If all has gone smoothly thus far, the next step should be the simplest and
+most satisfying. As root, <tt/su(1)/ to the IDABENCH_USER account and manually
+run <tt>IDABENCH_BIN_PATH/fetchem.pl -debug -l site0</tt> (or whatever
+your sitename happens to be). If there is a current packet capture file on the
+sensor, fetchem.pl should run and exit silently. If there are problems,
+debugging output should be in IDABENCH_LOG_PATH/fetchem.log.
+
+<p>
+There should now be two new files on the analyzer, the gzipped raw data file
+ANALYZER_DIR/MonthDD/tcp.yyymmddhh.gz, and an hourly html report, 
+IDABENCH_WEB_PAGES_PATH/site/MonthDD/yyymmddhh.html.
+
+<p>
+The following example should make this a little clearer:
+<p>
+It is currently 11:15, 25 July 2003. Using default settings for my site
+configuration, I run:
+
+<tscreen><verb>
+sh-2.05b# su - idabench
+
+[idabench@anlzr idabench]$ /usr/local/idabench/bin/fetchem.pl -debug -l site0
+
+[idabench@anlzr idabench]$ ls -l /var/www/idabench/data/site0/Jul25/
+total 31248
+-r--r--r--    1 idabench idabench 31960557 Jul  2 11:16 tcp.2003072510.gz
+
+[idabench@anlzr idabench]$ ls -l /var/www/idabench/data/hourly_results/site0/Jul25/
+total 48
+-rw-rw-r--    1 idabench idabench   47761 Jul  2 11:45 2003072510.html
+</verb></tscreen>
+
+<p>
+From this point forward, entries in the IDABENCH_USER's <tt/crontab/ should continue
+the process.
+
+<sect>Configuration<label id="configuration">
+
+<sect1>Analyzer config<label id="configanalyzer">
+
+<p>
+The IDABench analyzer needs to juggle quite a few programs, files, and
+processes around.  As such, configuration can, at first, seem a little
+daunting. The defaults for the primary configuration files, <tt/idabench.conf/
+and <tt/site0.ph/, should serve well for most single sensor sites.
+
+<sect2>idabench.conf
+
+<p>
+<tt/idabench.conf/ is the system-wide analyzer configuration file. There are a
+number of variables that are set here and referred to by site-specific options
+later. Locations of key binaries and directories are two examples. Read through
+the comments carefully as you make changes to this file, or there may be
+unanticipated results. Here are a few key settings you may with to modify:
+
+<p>
+
+<itemize>
+
+<item>$SSH_CMD, $SCP_CMD, $GUNZIP_CMD - these are commented out by default, and
+will be located during installation so that several scripts that need them can
+be modified. You can, at any time, install different versions of these binaries
+and specify their preferred locations here, overriding what was found during installation.
+
+<p>
+<item>
+$IDABENCH_PATH - The location where the IDABench files and directories
+are located. This should be specified during installation and not modified
+afterwards. Popular locations are /usr/local/idabench, /opt/idabench, home.
+
+<p>
+<item>
+$IDABENCH_HTTP_PATH - The location where the website hierarchy for IDABench
+should be maintained. Subdirectories will be created here for images, cgi
+scripts, global and site-specific html files, etc. 
+
+<p>
+<item>
+$IDABENCH_USER - The IDABENCH_USER is the account used to retrieve data from the sensor(s), 
+build web pages, and remove old files from the sensor(s). This user will 
+have a crontab built for them by the install_analyzer script that runs
+fetchem.pl, statistics.pl and cleanup.pl.
+
+<p>
+<item>
+$IDABENCH_WEB_USER - The webserver configuration file (httpd.conf) should say
+something like: "User apache". This is the account name we need here so that
+permissions can be set properly on spool directories.
+
+<p>
+<item>
+$IDABENCH_TEMP_FILE_LIFESPAN - Number of days after which to delete query
+graphs and merged query files.
+
+</itemize>
+<p>
+The following are relative web paths to IDABench components. If you make any 
+changes here after installation you should either re-run install_analyzer or
+manually modify the webserver configuration and cgi-bin files. In other words:
+make any changes you want before running install_analyzer, then don't touch 
+them afterwards.
+
+<p>
+
+<itemize>
+
+<item>$IDABENCH_RELHTTP_PATH - Relative http path. What the base path is on the
+website. If your webserver is foo.bar.net, the IDABench webpages will will be
+accessible at http://foo.bar.net/$IDABENCH_RELHTTP_PATH
+
+<item>$IDABENCH_RELCGI_PATH - Relative path to the cgi scripts. See above.
+
+<item>$IDABENCH_REL_WEB_PAGES_ROOT - Where the hourly web pages will be located.
+Subdirectories for each site will go in here.
+
+<item>$IDABENCH_WEB_SPOOL_URL - The location of spooled graphic and binary
+results from searches.
+
+</itemize>
+
+<sect2>Analyzer site configuration
+
+<p>
+A single IDABench analyzer can service many sensors. Each sensor instance (site)
+is configured independently in its own subdirectory.  This site-specific subdir
+is where you decide which plugins will be enabled and how they are individually
+configured for each site. The file <tt/site.ph/ and plugin-specific subdirectories
+are where this takes place.
+
+<sect3>site.ph
+
+<p>
+The site.ph file is the primary configuration file for each site. It defines
+sensor location, user, cleanup timing parameters, etc. As with the global
+configuration file idabench.conf, the inline documentation is verbose; much of
+this section is directly from those comments. If you are installing a
+single-host system, no adjustments should be necessary.
+
+<itemize>
+
+<item>$SITE - SITE is the name that the analyzer will use to refer to this source of
+packet capture data. It will be used to create subdirectories under the 
+analyzer directory and the web pages that IDABench creates to display the
+data. It need not be the same as the sensor SITEx_NAME, but definitely should
+be the same as this file's parent directory.
+
+<item>$SENSOR_USER - The account name that is used on the sensor for storage of the packet capture
+files. The analyzer will use this account name to ssh and scp files from the
+sensor.
+
+<item>$SENSOR - The name or address of the machine on which the idabench sensor is located. The
+analyzer fetches the raw data from the sensor hourly via crond. If you use a
+hostname, be certain that the analyzer can resolve it.
+
+<item>$SENSOR_DIR - The directory on your sensor in which the raw sensor data is stored. This is 
+NOT the analyzer storage path.
+
+<item>$SITE_FORM_LABEL - Set the following variable to the name you want to see for this site in
+cgi forms. If you leave it as $SITE, then the SITE parameter above will be
+used. This field allow you to have very long, descriptive names in the
+site configuration files, while still taking it easy on the analysts eye.
+
+<item>$HOSTSCAN_THRESHOLD, PORTSCAN_THRESHOLD - The xSCAN_THRESHOLD settings are the number of different destination
+addressess or ports that a "foreign" machine can contact before it is listed
+as a possible scanner.
+
+<item>$resolve_names - Should we attempt to resolve addresses to names in the hourly webpage output?
+Please note that this can be a tipoff to an attacker that you are running
+some kind of hourly logging process, should they be monitoring their incoming
+nameserver traffic. Additionally, resolving addresses can take quite a long
+time, especially if your analyzer is not connected to the outside world!
+
+<item>$CLEAN_TIME - The number of days you want to keep the raw data files on your sensor's disks
+before the cleanup.pl script removes them. It depends on the sizes of your
+files, the amount of sensor disk space, and your personal preference.
+
+</itemize>
+
+<p>
+The following settings are relative to others set throughout the system and
+IDABench configuration files. The vast majority of installations will probably
+not need to change anything from here down, and it is not advised that you do
+so:
+
+<itemize>
+
+<item>ANALYZER_DIR - The directory on your analyzer machine into which the raw sensor data is 
+fetched for this particular site.
+
+<item>OUTPUT_WEB_DIR - The directory where web pages are created which hold the filtered data for this
+one site.  
+
+<item>URL_OUTPUT_DIR - The relative path from the DocumentRoot variable defined in the Apache 
+configuration files to the actual html files for this site.
+
+<item>SEDEFAULT - Which search plugin would you like selected by default when first opening a
+new search window? This is optional and will default to the first appearing
+alphabetically in the site's config directory.
+
+</itemize>
+
+<sect3>Configuration subdirectories
+
+<p>
+Site configuration subdirectories contain filters for each plugin you wish to
+use for that site. For details on configuring plugin-specific filter files, see
+the Hourly plugin filters section.
+
+<p>
+During hourly processing, a separate child process is forked for each file in 
+the plugins subdirectories, thus a multiprocessor system yields big payoffs in 
+the analysis of large capture files.
+
+<p>
+For example:
+
+<tscreen><verb>
+  --etc
+    |-- ists            First site-specific subdirectory 
+    |   |-- findscan            findscan plugin specific dir
+    |   |   `-- filter.getall           filter for this plugin
+    |   |-- ngrep               ngrep plugin specific dir
+    |   |   |-- rule1                   ngrep filter
+    |   |   |-- rule2                   ngrep filter
+    |   |   `-- rule3                   ngrep filter
+    |   |-- site.ph             site-specific parameters, ie. sensor address
+    |   `-- tcpdump             tcpdump filter files dir
+    |       `-- generic.filter  tcpdump filters any filename is acceptable. 
+    |       `-- badweb          "
+    |       `-- fragmentation   "
+    |-- lab12           Second site-specific subdirectory 
+        |-- ngrep               ngrep plugin specific dir
+        |   |-- testcondition1          ngrep filter
+        |   `-- anomalies               ngrep filter
+        `-- site.ph             site-specific parameters, ie. sensor address
+    
+</verb></tscreen>
+
+<p>
+Here, we have two sites configured to use different plugins and associated
+filters. The first, ists, uses findscan, tcpdump and ngrep, whereas lab12 only
+has two ngrep filter files. Note that the filenames are not dictated, merely
+their presence in an directory with the name of the plugin.
+
+<p>
+As new plugins are developed and installed, a site can be configured to use the 
+new capability by adding a directory for the plugin and placing the appropriate
+filter(s) therein.
+
+<sect1>Sensor config<label id="configsensor">
+
+<p>
+There are two primary configuration files for an IDABench sensor, sensor.conf
+and a filter file, site0.filter by default.
+
+<p>
+
+<sect2>sensor.conf
+
+<p>
+<tt/sensor.conf/ contains most configuration parameters for up to 10 sensor
+"sites", each with its own packet capture parameters, site name and
+directories. The fields are:
+
+<itemize>
+
+<p>
+<item>
+SENSOR_USER -  The user account for the transfer of data between the sensor(s)
+and analyzer. If it doesn't exist, it will be created during installation. 
+
+<p>
+<item>
+SENSOR_USER_HOME - Home directory of the SENSOR_USER. If this is not specified, it is
+assumed to be /home/$SENSOR_USER. Solaris users, take note: this should probably be 
+/export/home/&lt;SENSOR_USER> for you. If your system does a clean job of creating
+home directories, you should NOT uncomment this.
+
+<p>
+<item>
+LOGDIR - Parent path to all site specific packet log directories. Subdirectories
+will be created under this for each site that is defined below. The SENSOR_USER
+owns this directory and subdirectories below it so that they can, via ssh/scp
+from the analyzer, retrieve and cleanup binary dumpfiles.
+
+<p>
+<item>
+SENSOR_PATH - Where to install the sensor files. This value will be used to 
+modify the SENSOR_PATH entries in the sensor init script as well as the 
+sensor_driver. This will override the default of /usr/local/idabench/sensor 
+when running the installer.
+
+<p>
+<item>
+MERGER - The installer will try to locate mergecap or tcpslice to enable merging
+of partial dumpfiles. If defined here, this value will override what is found in
+the path.If not defined here, or detected by the install_sensor script, the 
+logbits will remain on the sensor until removed by the analyzer's "cleanup.pl".
+See PARTIAL CAPTURES in README.sensor.
+
+<p>
+<item>
+TZ - We need various timestamps all over the place. Set this according to your
+preferences. If you have sensors crossing time zones, you might need GMT(UTC)
+to simplify correlations. Otherwise, localtime (LOC) is generally convenient.
+
+<p>
+<item>
+Other binaries - During installation, entries in sensor.conf override what is 
+found in the path. As such, you should only uncomment the program paths and 
+make changes to them if you have multiple versions of a program and are certain
+of which one you prefer.
+
+<p>
+<item>
+Site definitions - A "site" is a running instance of tcpdump with its own unique
+commandline parameters, logging to its own subdirectory. The analyzer(s) will 
+refer to these sites by name when retrieving dumpfiles.
+
+<p>
+There are three entries per site definition. In each one, replace the "x" below
+with a site-specific digit 0-9:
+
+<p>
+<enum>
+<item>SITEx_NAME - The name that is used to refer to this sniffer instance. A
+subdirectory to LOGDIR will be created with this name to store its dumpfiles. A
+sitename can be any combination of alphanumeric characters, but should follow
+file naming conventions.
+
+<p>
+<item>SITEx_PROGPAR - Additional parameters that will be passed to tcpdump. These
+should include, at a minimum, -i &lt;interface> and -s &lt;snaplen>. Tcpdump's default
+snaplen is 68 bytes, which may not be large enough to feed content-aware
+analysis programs. Note that storage requirements will increase significantly
+with a large snaplen. Multiple sites can certainly use the same interface.
+<p>
+If you have modified sensor_driver sufficiently to use an
+alternate pcap-based sniffer, pass any required params to it here.
+
+<p>
+<item>SITEx_FILTER - The file containing bpf filters to be applied during packet 
+capture. These should be kept simple, as they are compiled by tcpdump at runtime
+and complex filters may introduce latencies into the sensor restart chain, 
+causing packet loss. You may use the same value here for all sites, if you
+choose.
+
+</enum>
+
+</itemize>
+
+<p>
+
+<sect2>sensor filter file
+
+<p>
+<tt/tcpdump(8)/ will read its capture filter from this file. Any network
+traffic that does not match the filter defined there will not be recorded, and
+will not be available for scrutiny by the analyzer(s). In cases where you have
+multiple analyzers evaluating different portions of the data stream, you may
+wish to configure multiple sites on the same sensor, each using their own
+filter file to distribute the analyzers' loads. For example:
+
+<p>
+
+<itemize>
+
+<item>web.sensor.site - (tcp and (port 80 or port 443)) or host www.mysite.net
+
+<item>bgp.site.filter - (tcp and port bgp)
+
+<item>everythingelse.site - ip and !(host www.mysite.net) and !(tcp and (port bgp or port 80 or port 443)
+
+</itemize>
+
+For most sites, however, the default filter should be sufficient, simply:
+
+<itemize>
+<item>site0.filter - ip
+</itemize>
+
+<sect>Hourly plugin filters<label id="pluginfilters">
+
+<sect1>tcpdump filters<label id="tcpdumpfilters">
+
+<p>
+When IDABench retreives hourly dumpfiles from the sensor(s), if you are using
+the tcpdump plugin and there are filters in the site's tcpdump directory, these
+filters are passed to tcpdump to match on packet header conditions.
+
+<p>
+Without using some pretty heady filter sleight-of-hand, tcpdump filters cannot
+match on packet contents, merely their headers. Things like source and
+destination hostname or ip address, ports, flags, options, etc. are available
+for examination by specifying what to look for in the filter.
+
+<p>
+A simple filter might be:
+
+<tscreen><verb>
+tcp and dst host www.mynet.net
+
+</verb></tscreen>
+
+<p>
+This would print out all packets containing tcp segments that are headed to
+that webserver. Now, this rule will probably result in a pretty big report, if
+the webserver is accessed with any regularity. It might be a little more
+useful to report on packets headed for the webserver that don't look like web
+requests. One basic condition that must be true, if it is normal web traffic,
+is the destination port must be the well-known port for web traffic: port 80.
+
+<p>
+Here's the more specific rule:
+
+<tscreen><verb>
+tcp and dst host www.myweb.net and (not dst port 80)
+</verb></tscreen>
+
+<p>
+The parentheses weren't really necessary here, although they often make it
+easier to read complex filters by breaking them up into logical components.
+They can also be used to group elements before negation, or to aggregate
+elements to be sure that tcpdump interprets the filter as you intended. For
+instance:
+
+<tscreen><verb>
+udp and not port 53 or port 137 or port 123
+</verb></tscreen>
+is very different from:
+<tscreen><verb>
+udp and not (port 53 or port 137 or port 123)
+</verb></tscreen>
+
+<p>
+You can be very specific in what header values to match against, especially if
+you tell tcpdump what bytes to examine. When looking at the actual values of
+specific bytes within the headers, you can perform many different mathematical
+operations on those values of contents before making a comparison. The basic
+rule is this, if your expression evaluates true, the packet will be printed.
+Here's what we can do with this:
+
+<tscreen><verb>
+src port 80 and (tcp[2:2] > 1023)
+</verb></tscreen>
+
+<p>
+This tells tcpdump to match on two conditions. First, see if it has a source
+port of 80. Then, go to the beginning of the tcp header, move down (offset) 2 
+bytes and read the value of the next two bytes. If that returned value is
+greater than (>) 1023, we have a match and tcpdump will display it. Since we all
+know that tcp[2:2] is the destination port (see rfc793) this filter will
+obviously fire on traffic going TO a web client.
+
+<p>
+For more details on tcpdump filters, the tcpdump man pages are an excellent
+resource, as is the SANS Institute/NSWCDD's excellent document "Intrusion
+Detection -- Shadow Style, A Primer for Intrusion Detection Analysts". It is
+included in the doc/historical directory in .txt and .doc formats.
+
+<p>
+IDABench's tcpdump plugin has the ability to strip out comments as well as to
+do simple variable substitution, making filter files easier to document, easier
+to read, and considerably more portable. 
+
+<p>
+Variables, if you choose to use them, are assigned one per line, beginning with
+the keyword "var". They, for now, should contain a variable name followed by a
+space, an equal sign, a space, and the desired value. To use a variable, simply
+include the variable name prefixed with a dollar sign ($) wherever you want to
+represent the assigned value. For example:
+
+<tscreen><verb>
+   # variables start here
+   var MYNET = 172.31.0.0/22
+   var FTP = ftp.goodguys.org
+   var REVPROXY = 172.31.1.6
+   var PRXPORT = 33128
+   # no more vars
+   
+   dst net $MYNET and ip[6:2] & 0x1f != 0     # fragments from the outside
+   icmp and not src net $MYNET                    #icmp not from the inside
+   # ftp connection attempts to hosts other than the ftp server
+   dst net $MYNET and dst port 21 and (tcp[13] & 0x3f = 2) and !(dst host $FTP)
+   dst host $REVPROXY and not dst port $PRXPORT
+
+</verb></tscreen>
+
+<p>
+If your filters are based on organizational policy you may be able to centrally
+develop filtersets so all that need be modified for different "sites" are the
+values assigned, greatly simplifying filter management.
+
+<p>
+TCPDUMP FILTER NOTES: The only place variables can be assigned is the beginning
+of the filter file. Once the body of the filter itself begins, any further
+variable assignments will be discarded. For this release, the tcpdump plugin
+DOES NOT support lists of values for a single variable name.
+
+<sect1>ngrep filters<label id="ngrepfilters">
+
+<p>
+Ngrep filters are used for matching on both content (packet payload) and packet
+header conditions. 
+
+<p>
+IMPORTANT!
+These rules are not a substitute for a content matching rule-based IDS. It is
+trivial for an attacker to evade network grep detection, and should only be
+used for reporting on events that are predictable.
+
+<p>
+
+<sect2>Syntax:
+
+<p>
+Each filter is a separate file containing two or three lines. The first line is
+a regular expression used to match against the payloads of packets which match
+the second line's bpf (libpcap-style filter). If a packet doesn't match the
+second line, the payload isn't checked against the regex on the first line.
+Comments are ignored when parsing filter lines. The third line is optional and
+contains additional commandline switches that are passed to ngrep. See the
+section on "Switches", below.
+
+<p>
+For example:
+
+<tscreen><verb>
+user: root
+tcp and dst port 110
+</verb></tscreen>
+
+This simple filter will look for POP3 authentication attempts as the root user.
+To extend this a bit further, we can exclude systems from which this may be
+legal:
+
+<tscreen><verb>
+        # Robin Oot retrieves her mail from her workstation
+        user: root
+        tcp and (dst port 110) and not (src host robinsmachine.mydomain.org)
+</verb></tscreen>
+
+<p>        
+Maybe we want to watch for a couple of different account names, perhaps
+disregarding whether uppercase or lowercase in the command:
+
+<tscreen><verb>
+        # Robin Oot retrieves her mail from her workstation
+        # and Alvin D'min has an account there, too
+        [Uu][Ss][Ee][Rr]: (root|[Aa]dmin)
+        tcp and (dst port 110) and not (src host robinsmachine.mydomain.org)
+</verb></tscreen>
+
+Note how using square brackets creates alternatives. These are called
+"character classes", and will match anything within the brackets one
+time. The pipe ("|"), or infix operator, indicates alternation; it
+allows for alternate matches. Here's the logic this expression follows:
+
+<tscreen><verb>
+                U or u
+                followed by
+                S or s
+                followed by
+                E or e
+                followed by
+                R or r
+                followed by
+                :
+                followed by
+                (one space)
+                followed by
+                        (root
+                        or
+                                (A or a
+                                followed by
+                                dmin)
+                        )        
+</verb></tscreen>
+
+<sect2>A few specific pattern notes -
+
+<p>
+A dot (".") matches any character. If you merely wish to print out all
+content that matches a particular bpf, the first line need only contain
+this.
+
+<p>
+?, +, {, |, (, and ) are metacharacters and need to be escaped by preceding
+them with a backslash ("\") if used as match characters. For instance, the
+pattern: foobar? would match "fooba", "foobat", or "foobacon" as the ?
+indicates an optional character. The pattern foobar\? would match "foobar?",
+specifically.
+
+<p>
+Have a peek at the man pages for ngrep(8) regex(7) and grep(1) for some more
+details. The only book we've found that covers GNU regex is Jeffrey
+Friedl's 'Mastering Regular Expressions', O'Reilly, 1997.
+
+<sect2>Switches:
+
+<p>
+Ngrep is called by the ngrep.ph plugin with certain commandline switches. By
+specifying additional ones here, you can modify ngrep's match and output
+behavior.
+
+<p>
+The switches that are used by the plugin by default are:
+
+<tscreen><verb>
+t       Print a timestamp on every line
+q       Be quiet. Don't report on bpf matches with a hashmark
+I -     Accept packet input from STDIN as the hourly file is fed to it.
+</verb></tscreen>
+
+<p>
+The only additional ngrep commandline switches that can be specified in the
+filters are as follows. Anything other than these will be disregarded:
+
+<tscreen><verb>
+x       Print packet payloads as hexadecimal as well as ASCII
+X       Treat the match expression as a hexadecimal string. Great for
+        matching binary content
+v       Invert the match. Print out content that doesn't contain the expr.
+w       Treat the pattern as a word. Implies word boundaries at either end.
+Anum    Print num of packets after a match is successful. Good for
+        seeing follow on activity.
+</verb></tscreen>
+
+<p>
+The order doesn't matter, EXCEPT "Anum" must be the last switch, if present.
+Thus: XxA5 works as you expect it to, while A5Xx doesn't.
+
+<p>        
+A few examples:
+
+<tscreen><verb>
+# Look for Kazaa/Morpheus traffic
+X-Kazaa-Username
+tcp port 1214
+</verb></tscreen>
+
+<tscreen><verb>
+# Alert on any traffic with content to the honeypot 
+.
+ip and (dst host hpot.mynet.com) and !(src net mynet.com)
+xA5
+</verb></tscreen>
+
+<tscreen><verb>
+# Alert on SMB null session attempts
+# The match string is in hex
+49504324003f3f3f3f3f
+tcp and dst port 139 and tcp[13] & 0x10 = 0x10
+Xx
+</verb></tscreen>
+
+<tscreen><verb>
+# Print out syslog traffic from the border routers' ACLs
+IPACCESSLOG
+udp and dst port 514 and (src host router1 or src host router2)
+</verb></tscreen>
+
+<sect1>findscan filters<label id="findscanfilters">
+
+<p>
+When IDABench retreives hourly dumpfiles from the sensor(s), if you are using
+the findscan plugin and there is a filter in the site's tcpdump directory, this
+filter is passed to tcpdump to match on header conditions before examining the 
+resultant packets for evidence of scanning.
+
+<p>
+This single filter (we call it filter.getall, but you can call it anything you
+want) follows the same syntax rules as tcpdump plugin filters. You probably
+don't want to be too restrictive here, as scan traffic can take on many forms.
+Here, I'd rather suffer from a few more false positives than to miss a targeted
+reconnaissance effort; by paying attention to the ratio column in the findscan
+output, an analyst can quickly identify likely false positives without having
+to resort to a lengthy investigation.
+
+<p>
+Refer to the <ref id="tcpdumpfilters" name="tcpdump filters"> section, above, for format details.
+
+<sect>Ad-hoc searches<label id="searches">
+
+<p>
+The Search utility allows an analyst to reach back in time and view network
+events even if they didn't meet the criteria (filters) to be included in an
+hourly report. Depending on the search plugin and output format selected,
+the analyst can display the results of ad-hoc queries textually or 
+graphically, or retrieve the packets that match the query as a composite 
+libpcap dumpfile for further, local, examination.
+
+<sect1>The interface<label id="searchinterface">
+
+<p>
+The Search interface is plugin-customized to provide access to important
+capabilities of the associated utility. For instance, the ngrep search
+interface provides text boxes in which you can specify regular expressions
+to match against packet payload, while the tethereal search interface accepts
+tethereal-specific filters. The plugin-specific interfaces that are included 
+with this distribution will be discussed in "Search plugins", below. 
+
+<sect1>Standard search options<label id="searchoptions">
+
+<p>
+Not all of the following are available to all plugins, but are general enough
+to be called "standard":
+
+<p>
+<itemize>
+<item>Which sensor - Select the "site" whose data you wish to search
+
+<p>
+<item>Max output lines - Limit the number of lines of output sent to the
+browser. This DOES NOT terminate the search process on the analyzer once the
+limit has been reached. It merely is a safety valve to keep the analyst's
+workstation from being overwhelmed by html data and has no effect on binary or
+graphical output.  
+
+<p>
+<item>Host name lockup - Attempt to resolve addresses to hostnames and port
+numbers to service names. The default setting for this is site specific and is
+based on the $RESOLVE_NAMES setting in the associated site.ph. Here are a
+couple of great reasons NOT to resolve names: 1. you may tip off an attacker
+who is monitoring DNS activity, and 2. It often takes quite a long time to
+resolve the myriad addresses that may show up in an extended search. Caveat
+resolvor.
+
+<p>
+<item>Max packets to match per hour - If available, this will terminate the
+examination of each hour's data when the specified number of packets matches
+the query definition. If you are searching for low-volume events across
+extended time periods, this can save quite a lot of time. A value of zero (or
+blank) indicates no limit is set.
+
+<p>
+<item>Start/End Search - Specifies the range of hourly dumpfiles through which
+the query will be applied. Note that the ending hour is included in the search,
+thus to only search through 1 hour of data, the "start" and "end" hours
+selected must be the same. NOTE: some browsers like to occasionally ignore the
+default field values that are passed to them. If your search returns no
+results, check that the start/end dates and times are correct.
+
+<p>
+<item>Search for a specific host/port/network - If available, these will build
+simple bpf syntax to be passed to the underlying libpcap tool. The
+<it>and/or</it> joiner will insert that Boolean operator between the field
+values entered.  There are no parentheses used in this section to group query
+elements.
+
+<p>
+<item>Search with a general filter - Here you have the flexibility to compose a more
+complex packet filter, including any macros, masking, mathematical operations,
+etc. that you may concoct. There is a 500 character limit imposed on this 
+field; you'll need to modify search.cgi if you need more than this. See the 
+tcpdump(8) man page for details on bpf syntax.
+
+<p>
+<item>Display output as - The results of your query are, by default, returned as text
+in a web page. Three other formats are available: png, postscript and binary.
+
+<itemize>
+
+<item>png and postscript are graphic formats; idabench will return your data as
+points on a graph representing the frequency of successful query matches. The
+period of measure can be modified using the second/minute/hour/day menu and the
+style of graph is also selectable. The first graphic format, png (portable
+network graphics), is suitable for display in most modern browsers and image
+viewers.  It is returned as an image in the resultant webpage and can be
+bookmarked, linked to, emailed, etc. See "Repeat queries", below. The second
+graphical format, Postscript, is actually a "page description language" rather
+than a bitmap image file. It is useful for creating very high resolution images
+suitable for publication, but is not supported by most browsers and image
+editors. The postscript file is presented as a link for download (or viewing,
+if you have a suitable browser plug-in installed). For graphical output,
+<tt/gnuplot(1)/ must be installed on the analyzer.
+
+<item>Binary output takes the resultant packets from a query match and, using
+<tt/mergecap(1)/ or <tt/tcpslice(1)/, if available, aggregates them into a new
+binary dumpfile which can be downloaded to the analyst's local system for
+further analysis. One of the primary benefits gained through binary downloads
+is the now obviated need for analysts' shell accounts, and possibly even
+<tt/sshd/, on the IDABench analysis system. An example of use might be to query
+for an interesting tcp communication, such as an IRC bot's communication with
+its server, by specifying source and destination addresses, as well as binary
+output format, in the tcpdump search tab, then locally using <tt/tcptrace,
+ethereal or tcpflow/ to extract the conversation(s). Another possibility is to
+query for all traffic to a suspected compromised system, then open the binary
+dumpfile with etherape to graphically display the communication relationships
+as they unfold. Ooh, pretty.
+
+</itemize>
+
+<p>
+With both graphical and binary output, the image files and merged packet logs
+returned from your query are spooled locally on the webserver for a period of
+time specified as <tt/CLEAN_TIME/ in <tt/site.ph/. The names of the resultant
+.png, .ps or .bin files look like gibberrish, but are actually a <tt/md5sum(1)/
+of the submitted search parameters. Every time a search form is submitted, the
+<tt/md5sum/ is calculated and IDABench checks to see if someone has already
+performed this same search. If so, the results are returned directly from the
+cached file, instead of re-running the search.
+
+<p>
+One thing to look out for, as a result of this: If the search parameters
+haven't changed, but the dataset has, IDABench will NOT run the search over
+again. This is a bug and will be addressed shortly. Until this is fixed, you
+will need to either change something in the query (add another hour, or a
+redundant bpf element), or delete the offending cached files from the spool
+directory before resubmitting the form.
+
+</itemize>
+
+<sect1>Search plugins<label id="searchplugins">
+
+<p>
+The search plugins included with IDABench are by no means the only ones
+that are possible. As such, these notes may be rather insufficient to describe
+the settings and options available to you. The three that are provided are:
+
+<enum>
+
+<item>tcpdump - Additional options provided with for <tt/tcpdump(1)/ deal with output
+formatting.
+
+<itemize>
+
+<item>Choose level of detail - Allows you to pass either "-q" (quiet) or either
+one or two "-v" (verbose) switches to tcpdump. 
+
+<itemize>
+
+<item>Quiet  - suppresses protocol information, so output lines are shorter.
+This could make certain output clearer if <tt/tcpdump/ is trying to print
+details of a particular transport or application protocol, merely because of a
+certain port number. For instance, an attacker is communicating with his remote
+administration backdoor on port 12345, using a source port of 53. This would
+be misinterpreted as DNS traffic and printed with erroneous details.
+
+<item>Verbose / Very verbose - Additional protocol analysis is performed. Be
+aware, this may result in multiple lines being output for each packet reported.
+Historically, ISAKMP, BGP and NetBIOS have also presented security risks in
+their dissection. Use with caution.
+
+</itemize>
+
+<item>Print output in hexadecimal - Hexadecimal representation of each packet
+is made available. This could reveal certain packet details that are either
+misrepresented by <tt/tcpdump/'s summary line, or not printed at all. It
+may also make available patterns of binary content for correlation. "With
+ASCII" prints line numbers, hex, and ASCII representation of that binary
+content, side-by-side. Pretty. This option will not work with early versions of
+<tt/tcpdump(1)/.
+</itemize>
+
+<p>
+
+<item>ngrep - The ngrep plugin allows content-based searches to be specified,
+and the output be formatted with a few basic modifiers:
+
+<itemize>
+
+<item>Search for this packet content: (regex) - A regular expression to be
+searched for in the payload of all packets that match the header expression.
+This expression can be in ASCII or in hexadecimal, but not a combination. If
+there are multiple lines used, they are joined with either <tt/.*/ or a pipe
+symbol <tt/|/, depending on the pull-down selections "followed by" and "or",
+respectively. To better understand the syntax and processing, try several
+combinations and review the resultant command line that is displayed at the top
+of the returned "Results" web page.
+
+<item>Display Timestamp - Self explanatory.
+
+<item>Print output in hexadecimal - This will output the payload as hex and
+ASCII, side by side. See the discussion of hex output in the tcpdump plugin
+section.
+
+</itemize>
+
+<p>
+
+<item>tethereal - tethereal(1) is a text version of the wonderful protocol
+analyzer, Ethereal. The syntax for specifying packets to output is very rich,
+and the output itself can be overwhelming in its detail. There is a performance
+price to pay for all of this capability, do use with caution.
+
+<p>
+From the Tethereal manual page:
+
+<tscreen><verb>
+When printing a decoded form of packets, Tethereal prints,
+by default, a summary line containing the fields specified
+by the preferences file (which are also the fields dis­
+played in the packet list pane in Ethereal), although if
+it's printing packets as it captures them, rather than
+printing packets from a saved capture file, it won't print
+the "frame number" field.  If the -V flag is specified, it
+prints instead a protocol tree, showing all the fields of
+all protocols in the packet.
+</verb></tscreen>
+
+See <tt/man 1 tethereal/ for a full description of the read filter syntax. A
+few examples:
+
+<itemize>
+
+<item><tt/ip.addr eq 10.2.3.4/ - either ip address equals 10.2.3.4
+
+<item><tt/ip.src ne 192.168.46.2/ - source ip address is not equal to 192.168.46.2
+
+<item><tt/tcp.port ne 22/ - EITHER tcp source port or destination port isn't equal
+to 22
+
+<item><tt/! tcp.port eq 22/ - NEITHER tcp source port not destination port is equal
+to 22
+
+<item><tt/aim.channel eq 2 and ip.addr eq dhcp69/ - AOL Instant Messenger
+channel 2 and ip host dhcp.69
+
+<item><tt/aim[17:9] == 61.6c.70.69.6e.69.73.74.61/ - AOL IM Screen name is
+"alpinista"
+
+</itemize>
+
+<p>
+The tethereal search plugin is a very simple one that can be used as an example
+of plugin design; hopefully there will be a friendlier IDABench interface
+to tethereal soon.
+</enum>
+
+<sect1>Repeat queries<label id="repeatqueries">
+
+<p>
+If a query is submitted that is identical to a prior query,
+and the image or composite binary dumpfile is still in the web spool
+directory, the query will NOT be reprocessed.  Instead, the cached results will
+be returned to the browser immediately. This allows one to bookmark or email
+the URL of a "results" webpage containing an image or postscript or binary
+results link.  These spooled files will be flushed once the
+IDABENCH_TEMP_FILE_LIFESPAN (in idabench.conf) has been surpassed.
+
+<sect>Writing plugins<label id="writingplugins">
+
+<p>
+IDABench looks for plugins in the directory designated by IDABENCH_LIB_PLUGIN_PATH
+in the idabench.conf file.  Plugins are written in Perl.  Hourly analysis
+plugins should have the extension .ph, and search plugins the extension .se.
+
+<sect1>Hourly Analysis Plugins
+
+<p>
+These plugins consist of two parts, the plugin definition files and rule files.
+A plugin definition file ends with extension .ph and defines the plugin for
+all sensor sites.  However, the plugin will only be active for sites which
+have rule files for that plugin.  For example, there is an ngrep plugin named
+ngrep.ph in directory IDABENCH_LIB_PLUGIN_PATH.  If there are two sensor sites,
+NorthGate and SouthGate, IDABench will look in directories
+<tt>IDABENCH_SITE_PATH/NorthGate/ngrep</tt> and  <tt>IDABENCH_SITE_PATH/SouthGate/ngrep</tt> for
+rule files, which may have any name.  For each site, in each hour, IDABench will
+call ngrep once with each rule file, then concatenate the output and process
+it in aggregate.  The resulting output will be appended to the web page
+generated for that hour's data.  The meaning of a rule file is up to the
+specific tool - it can contain any parameters the tool needs, allowing the
+action of the plugin to be site-specific.
+
+<p>
+A plugin definition file must define the following four Perl variables: $head,
+$color, $individual, and $aggregate.
+
+<p>
+<itemize>
+<item>$head is the string to be displayed on the web page in order to introduce the
+output from the plugin.
+
+<p>
+<item>$color is the background color to use in that section of the report.
+
+<p>
+<item>$individual is a Perl subroutine that takes two arguments: the name of a rule
+file and the name of an output file.  The routine must return a string which
+will be called to invoke the tool on input from stdin, and send the output to
+the output file.  The subroutine may make use of parameters in the
+idabench.conf file, by prefixing them with the namespace IDABENCH, as in
+$IDABENCH::TCPDUMP_CMD.  The $individual subroutine will be executed on each
+rule file found for a given site, in alphabetical order.
+
+<p>
+<item>$aggregate is a Perl subroutine that takes a single argument: the name of a
+file containing the concatenated output from all the invocations of
+$individual.  The subroutine should take its input from this file and write to
+stdout, in a form suitable for display in the html file.  The output will
+appear between &lt;PRE> and &lt;/PRE> tags.
+
+</itemize>
+
+<p>
+To summarize, each time raw tcpdump files are pulled from sensor sites, IDABench
+will look for hourly analysis plugins that have associated rule files.  For
+each rule file found, it will call $individual to build a process, and then
+pipe tcpdump packet data through these processes, concatenating the results
+into a file.  Then it will call $aggregate on this file, and append the output
+to the hourly web page.  It will do this for each plugin, in alphabetical
+order, preceding each one with $head, and coloring the output using $color.
+
+<sect1>Search plugins
+
+<p>
+These plugins allow you to add new search and analysis tools to IDABench.  They
+appear as new search forms which can specify ranges of data to process and
+produce a web page displaying the results.  There is quite a lot involved, as
+the form must be specified and displayed, data gathered and validated, the
+correct span of data processed, and the output formatted for display.  We have
+attempted to factor out the common work, so you can concentrate on what is
+unique to your tool.
+
+<p>
+The plugin should be placed in a file in the directory indicated by
+IDABENCH_LIB_PLUGIN_PATH.  The file should have extension .se.  The part of the
+file name before the extension will be used as the name of the plugin (see
+tcpdump, ngrep, and tethereal for examples).  Links to the plugin forms will
+appear in alphabetical order on the IDABench Search Tools page.
+
+<p>
+A search plugin must define one string, $heading, and five subroutines,
+build_form_table, plugin_validation, build_search_command,
+transform_plugin_line, and answer_heading.  Any of these may make use of
+variables defined in idabench.conf directly; it is not necessary to prepend
+the IDABENCH namespace as it is for hourly analysis plugins.  They may also
+define and share global variables, so long as these do not conflict with
+variables in search.cgi.
+
+<itemize>
+<p>
+<item>
+$heading is used as the title of the output page.
+
+<p>
+<item>
+build_form_table() returns a list of all fields to appear in the search form.
+Each field is a hash containing some required and some optional values that
+define the field.  The fields will appear on the form in the order they are
+defined.  When the form is submitted, each field will be validated according
+to criteria specified in the table.  If all fields are valid, then a Perl
+variable is created for each field, containing the value submitted.  These
+values are accessible to . . .
+
+<p>
+<item>
+plugin_validation() which performs any additonal validation which cannot be
+specified in the form table.  It should increment the variable $aborted if
+errors are found.  Any information for the user should be printed to stdout.
+If there are no errors . . .
+
+<p>
+<item>
+build_search_command() will be executed.  This subroutine uses variables from
+the form to build a command to run the tool, which it should return as a
+string.  This command will be executed repeatedly to process each hour's data
+that is within the selected range.  Normally the tcpdump data will be piped to
+the command as stdin, and the tool should send its output to stdout.  Some
+tools require an input file, rather than stdin, however.  At present these
+tools can only be accomodated if they can handle a gzipped tcpdump file.  To
+use file input instead of stdin, the plugin definition file should set the
+global variable $takes_file to 1.  This will cause the input file name to be
+appended to the end of the command line each time the command is run.  For
+example, the plugin for tethereal contains the following lines:
+
+<tscreen><verb>
+ $takes_file = 1;
+    my $barepattern = $teth_pat;
+    our $pattern = "\'$barepattern\'";
+   my $lookup = ($nslookup eq "Yes") ? "" : "-n";
+   my $cmdline = "$TETHEREAL_CMD $lookup -t ad -R $pattern -r";
+</verb></tscreen>
+
+<p>
+The -r option tells tethereal to expect a file name next, and search.cgi will
+append this name before executing the command.  Tethereal is capable of
+determining that the file is gzipped and handling it appropriately.  $teth_pat
+and $nslookup come from form fields named teth_pat and nslookup, respectively.
+In this case, the subroutine declares $pattern to be "our", so it can be
+accessed by . . .
+
+<p>
+<item>
+answer_heading()  This returns a list of html text to be displayed before the
+output from the search tool.
+
+<p>
+<item>
+transform_plugin_line() is applied to every line of output from the search
+command.  It should transform its input into a form suitable for display, by
+altering the string itself, not by returning another string.  It should remove
+the newline, at least, and you may want to entirely eliminate lines that are
+extraneous to the analyst.  Search.cgi will take care of escaping < and >, so
+that html tags cannot find their way into the page unescaped.  In the case of
+output that is destined for graphing, each line must begin with a time stamp
+of a specific format:  yyyy/mm/dd hh:mm:ss.  transform_plugin_line() may need
+to transform the timestamp produced by the search tool to fit this format.
+Search.cgi knows to generate a graph when the form element "output_type"
+exists, and has any value other than "html" or "binary".
+</itemize>
+
+<sect1>Search Form Details
+
+<p>
+As mentioned above, build_form_table must return a list of all the fields that
+are to appear in the form.  Some of these fields, the ones unique to your
+form, will need to be specified from scratch, but several functions have been
+provided to define parts of a search form that will frequently appear.
+
+<p>
+First, let's look at some sample fields.
+<tscreen><verb>
+    nslookup => {
+	  spacing => "4",
+           param_label => "Host Name Lookup: ",
+           maxlen => "3",
+           param_type => "radio",
+           values => ["Yes", "No"],
+           default_value => "No",
+          }
+</verb></tscreen>	  
+
+<p>
+This field is named nslookup.  After the form is submitted and evaluated,
+$nslookup will contain the value submitted.  Since it has param_type radio, it
+will appear as a radio button with values Yes and No, after the label Host
+Name Lookup:.  Four spaces will be inserted between nslookup and the previous
+field.  When the form first appears, the No button will be checked.  When the
+form is submitted, only the values Yes and No will be accepted as valid.
+
+<tscreen><verb>   
+   teth_pat => {
+    	    new => "block",
+	    required => "oneof",
+	    param_label=>" Tethereal search pattern: ",
+	    field_size => "70",
+	    maxlen => "200",
+	    param_type => "string",
+	    validity_string => "A-Za-z0-9()\-_ ,.;:$[]<>=\!&",
+	  }
+</verb></tscreen>
+
+<p>
+Because it is of param_type string, the teth_pat field will appear as a text
+input field.  It will be 70 characters wide, but will allow up to 200
+characters to be entered and validated.  Only characters in the
+validity_string will be allowed.  At least one of the fields with required =>
+"oneof" must have a value.  Because it is a new block, it will start a new
+section of the form.
+
+<p>
+Here is the complete list of meaningful parameters:
+
+<itemize>
+<item>param_type (required) can have values "string", "number", "popup", "radio",
+  or "hidden".
+
+<item>param_label (optional) will appear to the left of the input field.
+
+<item>maxlen (required) is the maximum number of characters in the submitted value.
+
+<item>field_size (required for number and string) sets the displayed field width.
+
+<item>values (required for radio and popup) sets the permissable values for these
+  fields.
+
+<item>labels (optional for popup) gives visible names for each of the values in the
+  popup menu.
+
+<item>validity_string (required for string) lists the acceptable characters.
+
+<item>required (optional) can be "yes" if the field must always have a value, or
+  "oneof", if at least one of the fields so labelled must have a value.
+
+<item>new (optional) can be "line" to put the field on a new line, or "block" to
+  put it in a new block.
+
+<item>bgcolor (only meaningful with new block) specifies the background color for
+  the new block
+
+<item>blockname (only meaningful with new block) is the visible heading for the
+  block.
+
+<item>spacing (optional) inserts the specified number of &amp;nbsp; 
+ (non-breaking spaces) before the field.
+
+<item>default_value (optional) sets initial value.
+</itemize>
+
+<p>
+The following functions may be included to create some common blocks of fields:
+
+<itemize>
+
+<item>choose_host() provides fields to select the sensor site, whether to look up
+the host name or not, and how many lines to limit the output to.  If your tool
+does not support a host name lookup parameter, you may need to duplicate this
+functionality, minus the host name lookup.  Every plugin must supply a "site"
+field.
+
+<item>choose_time() allows a range of hours to be specified.  These fields are
+  essential for the functioning of search.
+
+<item>choose_tcpdump() allows tcpdump-style filters to be specified.  It may be
+  useful for other tools that support Berkely packet filters.
+
+<item>choose_tcpdum_mods() defines "verbose" and "hexa", to provide options for
+  verbosity and hexadecimal output.
+
+<item>choose_graph() is very useful if your tool can provide output suitable for
+  graphing.
+
+<item>choose_binary() tells your tool to write to standard output (-w -) so
+that the results can be merged into a new libpcap dumpfile suitable for
+download.
+
+<item>choose_bingraph() provides the two previous options as a single pulldown
+menu.
+
+</itemize>
+
+<p>
+To summarize, any file with the extension .se in the directory
+IDABENCH_LIB_PLUGIN_PATH will be treated as a IDABench Search plugin.  Links to
+the plugins will appear on every search page.  In fact, each search will be
+search.cgi with the parameter tool=thepluginname in the URL.  Search.cgi will
+run build_form_table() to make a list of form fields and their properties, and
+will then display the form.  When the user submits this form to search.cgi, it
+will use the form table and plugin_validation() to validate the user input.
+If the data are valid, it will run build_search_command() to create processes
+for the data, then read the proper hourly files and pipe them through these
+processes, transforming the output lines using transform_plugin_line() and
+displaying them as html.
+
+<sect>Additional notes<label id="additionalnotes">
+
+<p>
+
+<sect1>Debugging<label id="debugging">
+
+<p>
+The scripts <tt/fetchem.pl, cleanup.pl/ and <tt/pat_search.pl/ can be run from a
+commandline with several switches available to modify their actions. Two of
+them, <tt/fetchem.pl/ and <tt/cleanup.pl/, accept a <it/-debug/ switch which sends verbose
+debugging output to corresponding files in the <tt>/var/log</tt> directory. If a problem
+seems insurmountable, send that debugging output to the IDABench Developers
+list, idabench_dev@ists.dartmouth.edu, and we'll have a look.
+
+<sect1>Support<label id="support">
+
+<p>
+In addition to the documentation provided, ISTS has set up two public mailing
+lists where users and developers can ask questions on installation,
+configuration, performance and scalability, etc. To subscribe to either the
+IDABench Users list, idabench_users@ists.dartmouth.edu and IDABench Developers
+list, idabench_dev@ists.dartmouth.edu , send email with the word "subscribe" as
+the subject to: 
+
+<p>
+<quote>
+idabench_users-request@ists.dartmouth.edu
+<p>
+or
+<p>
+idabench_dev-request@ists.dartmouth.edu
+</quote>
+
+<p>
+Happy hunting!
+
+<sect>Contributors<label id="contributors">
+<p>
+The history of IDABench and the original SHADOW Intrusion Detection System
+dates back to a collaborative effort between the Naval Surface Warfare Center,
+Dahlgren Division and the SANS Institute that started in early 1998. The
+original development team of Stephen Northcutt, Vicky Irwin and Bill Ralph laid
+foundations that have been built upon by many, many other dedicated users,
+reviewers and contributors. 
+
+<p>
+I invite you to read the documentation we have included in the docs/historical
+directory for a better grounding in NSWC/DD SHADOW's pedigree.
+
+<p>
+I have tried to include, here, a list of all those who, either directly or
+indirectly, played a part in Shadow and/or IDABench. If I have omitted anyone,
+it was due to none other than my own ignorance, and I offer my sincere apologies
+as well as an invitation to contact the Dartmouth ISTS team so that we can
+rectify the oversight.
+
+<p>
+First, thanks go out to those whose progamming skills have built SHADOW and/or
+IDABench:
+
+<itemize>
+<item>Stephen Northcutt
+<item>Vicki Irwin
+<item>Bill Ralph
+<item>Scott Hoye
+<item>John Green
+<item>John Rigsby
+<item>Jason Griscavage
+<item>Phil Meek
+<item>Adena Bushrod
+<item>George Bakos
+<item>Amanda A. Eubanks
+<item>Doug Hill
+<item>Mark Ryan
+</itemize>
+
+<p>
+Others who's guidance, bug reports, suggestions, and overall good karma have
+aided the path these projects have taken include:
+
+<quote>
+J. Fredrick Kirby, Judy Novak, Dean Goodwell, William Stearns, Guy Bruneau,
+William A. Scherr III, Andy Kutner, Matt Crawford, Adam Shostack, Pedro A M
+Vazquez, Olav Kolbu, Bennett Todd, Mark H. Levine, Brian Utterback, Alex Bates
+</quote>
+
+<p>
+Please send comments, suggestions, edits and updates to this document to
+gbakos@ists.dartmouth.edu
+
+</article>

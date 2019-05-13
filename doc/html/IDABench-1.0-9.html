@@ -1,0 +1,284 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Ad-hoc searches</TITLE>
+ <LINK HREF="IDABench-1.0-10.html" REL=next>
+ <LINK HREF="IDABench-1.0-8.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc9" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-10.html">Next</A>
+<A HREF="IDABench-1.0-8.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc9">Contents</A>
+<HR>
+<H2><A NAME="searches"></A> <A NAME="s9">9. Ad-hoc searches</A></H2>
+
+<P>The Search utility allows an analyst to reach back in time and view network
+events even if they didn't meet the criteria (filters) to be included in an
+hourly report. Depending on the search plugin and output format selected,
+the analyst can display the results of ad-hoc queries textually or 
+graphically, or retrieve the packets that match the query as a composite 
+libpcap dumpfile for further, local, examination.
+<P>
+<H2><A NAME="searchinterface"></A> <A NAME="ss9.1">9.1 The interface</A>
+</H2>
+
+<P>The Search interface is plugin-customized to provide access to important
+capabilities of the associated utility. For instance, the ngrep search
+interface provides text boxes in which you can specify regular expressions
+to match against packet payload, while the tethereal search interface accepts
+tethereal-specific filters. The plugin-specific interfaces that are included 
+with this distribution will be discussed in "Search plugins", below. 
+<P>
+<H2><A NAME="searchoptions"></A> <A NAME="ss9.2">9.2 Standard search options</A>
+</H2>
+
+<P>Not all of the following are available to all plugins, but are general enough
+to be called "standard":
+<P>
+<P>
+<UL>
+<LI>Which sensor - Select the "site" whose data you wish to search
+
+<P>
+</LI>
+<LI>Max output lines - Limit the number of lines of output sent to the
+browser. This DOES NOT terminate the search process on the analyzer once the
+limit has been reached. It merely is a safety valve to keep the analyst's
+workstation from being overwhelmed by html data and has no effect on binary or
+graphical output.  
+
+<P>
+</LI>
+<LI>Host name lockup - Attempt to resolve addresses to hostnames and port
+numbers to service names. The default setting for this is site specific and is
+based on the $RESOLVE_NAMES setting in the associated site.ph. Here are a
+couple of great reasons NOT to resolve names: 1. you may tip off an attacker
+who is monitoring DNS activity, and 2. It often takes quite a long time to
+resolve the myriad addresses that may show up in an extended search. Caveat
+resolvor.
+
+<P>
+</LI>
+<LI>Max packets to match per hour - If available, this will terminate the
+examination of each hour's data when the specified number of packets matches
+the query definition. If you are searching for low-volume events across
+extended time periods, this can save quite a lot of time. A value of zero (or
+blank) indicates no limit is set.
+
+<P>
+</LI>
+<LI>Start/End Search - Specifies the range of hourly dumpfiles through which
+the query will be applied. Note that the ending hour is included in the search,
+thus to only search through 1 hour of data, the "start" and "end" hours
+selected must be the same. NOTE: some browsers like to occasionally ignore the
+default field values that are passed to them. If your search returns no
+results, check that the start/end dates and times are correct.
+
+<P>
+</LI>
+<LI>Search for a specific host/port/network - If available, these will build
+simple bpf syntax to be passed to the underlying libpcap tool. The
+<I>and/or</I> joiner will insert that Boolean operator between the field
+values entered.  There are no parentheses used in this section to group query
+elements.
+
+<P>
+</LI>
+<LI>Search with a general filter - Here you have the flexibility to compose a more
+complex packet filter, including any macros, masking, mathematical operations,
+etc. that you may concoct. There is a 500 character limit imposed on this 
+field; you'll need to modify search.cgi if you need more than this. See the 
+tcpdump(8) man page for details on bpf syntax.
+
+<P>
+</LI>
+<LI>Display output as - The results of your query are, by default, returned as text
+in a web page. Three other formats are available: png, postscript and binary.
+
+<UL>
+<LI>png and postscript are graphic formats; idabench will return your data as
+points on a graph representing the frequency of successful query matches. The
+period of measure can be modified using the second/minute/hour/day menu and the
+style of graph is also selectable. The first graphic format, png (portable
+network graphics), is suitable for display in most modern browsers and image
+viewers.  It is returned as an image in the resultant webpage and can be
+bookmarked, linked to, emailed, etc. See "Repeat queries", below. The second
+graphical format, Postscript, is actually a "page description language" rather
+than a bitmap image file. It is useful for creating very high resolution images
+suitable for publication, but is not supported by most browsers and image
+editors. The postscript file is presented as a link for download (or viewing,
+if you have a suitable browser plug-in installed). For graphical output,
+<CODE>gnuplot(1)</CODE> must be installed on the analyzer.
+</LI>
+<LI>Binary output takes the resultant packets from a query match and, using
+<CODE>mergecap(1)</CODE> or <CODE>tcpslice(1)</CODE>, if available, aggregates them into a new
+binary dumpfile which can be downloaded to the analyst's local system for
+further analysis. One of the primary benefits gained through binary downloads
+is the now obviated need for analysts' shell accounts, and possibly even
+<CODE>sshd</CODE>, on the IDABench analysis system. An example of use might be to query
+for an interesting tcp communication, such as an IRC bot's communication with
+its server, by specifying source and destination addresses, as well as binary
+output format, in the tcpdump search tab, then locally using <CODE>tcptrace,
+ethereal or tcpflow</CODE> to extract the conversation(s). Another possibility is to
+query for all traffic to a suspected compromised system, then open the binary
+dumpfile with etherape to graphically display the communication relationships
+as they unfold. Ooh, pretty.
+</LI>
+</UL>
+
+
+<P>With both graphical and binary output, the image files and merged packet logs
+returned from your query are spooled locally on the webserver for a period of
+time specified as <CODE>CLEAN_TIME</CODE> in <CODE>site.ph</CODE>. The names of the resultant
+.png, .ps or .bin files look like gibberrish, but are actually a <CODE>md5sum(1)</CODE>
+of the submitted search parameters. Every time a search form is submitted, the
+<CODE>md5sum</CODE> is calculated and IDABench checks to see if someone has already
+performed this same search. If so, the results are returned directly from the
+cached file, instead of re-running the search.
+<P>
+<P>One thing to look out for, as a result of this: If the search parameters
+haven't changed, but the dataset has, IDABench will NOT run the search over
+again. This is a bug and will be addressed shortly. Until this is fixed, you
+will need to either change something in the query (add another hour, or a
+redundant bpf element), or delete the offending cached files from the spool
+directory before resubmitting the form.
+<P>
+</LI>
+</UL>
+<P>
+<H2><A NAME="searchplugins"></A> <A NAME="ss9.3">9.3 Search plugins</A>
+</H2>
+
+<P>The search plugins included with IDABench are by no means the only ones
+that are possible. As such, these notes may be rather insufficient to describe
+the settings and options available to you. The three that are provided are:
+<P>
+<OL>
+<LI>tcpdump - Additional options provided with for <CODE>tcpdump(1)</CODE> deal with output
+formatting.
+
+<UL>
+<LI>Choose level of detail - Allows you to pass either "-q" (quiet) or either
+one or two "-v" (verbose) switches to tcpdump. 
+
+<UL>
+<LI>Quiet  - suppresses protocol information, so output lines are shorter.
+This could make certain output clearer if <CODE>tcpdump</CODE> is trying to print
+details of a particular transport or application protocol, merely because of a
+certain port number. For instance, an attacker is communicating with his remote
+administration backdoor on port 12345, using a source port of 53. This would
+be misinterpreted as DNS traffic and printed with erroneous details.
+</LI>
+<LI>Verbose / Very verbose - Additional protocol analysis is performed. Be
+aware, this may result in multiple lines being output for each packet reported.
+Historically, ISAKMP, BGP and NetBIOS have also presented security risks in
+their dissection. Use with caution.
+</LI>
+</UL>
+
+</LI>
+<LI>Print output in hexadecimal - Hexadecimal representation of each packet
+is made available. This could reveal certain packet details that are either
+misrepresented by <CODE>tcpdump</CODE>'s summary line, or not printed at all. It
+may also make available patterns of binary content for correlation. "With
+ASCII" prints line numbers, hex, and ASCII representation of that binary
+content, side-by-side. Pretty. This option will not work with early versions of
+<CODE>tcpdump(1)</CODE>.</LI>
+</UL>
+
+
+<P>
+<P>
+</LI>
+<LI>ngrep - The ngrep plugin allows content-based searches to be specified,
+and the output be formatted with a few basic modifiers:
+
+<UL>
+<LI>Search for this packet content: (regex) - A regular expression to be
+searched for in the payload of all packets that match the header expression.
+This expression can be in ASCII or in hexadecimal, but not a combination. If
+there are multiple lines used, they are joined with either <CODE>.*</CODE> or a pipe
+symbol <CODE>|</CODE>, depending on the pull-down selections "followed by" and "or",
+respectively. To better understand the syntax and processing, try several
+combinations and review the resultant command line that is displayed at the top
+of the returned "Results" web page.
+</LI>
+<LI>Display Timestamp - Self explanatory.
+</LI>
+<LI>Print output in hexadecimal - This will output the payload as hex and
+ASCII, side by side. See the discussion of hex output in the tcpdump plugin
+section.
+</LI>
+</UL>
+
+
+<P>
+<P>
+</LI>
+<LI>tethereal - tethereal(1) is a text version of the wonderful protocol
+analyzer, Ethereal. The syntax for specifying packets to output is very rich,
+and the output itself can be overwhelming in its detail. There is a performance
+price to pay for all of this capability, do use with caution.
+
+<P>From the Tethereal manual page:
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+When printing a decoded form of packets, Tethereal prints,
+by default, a summary line containing the fields specified
+by the preferences file (which are also the fields dis­
+played in the packet list pane in Ethereal), although if
+it's printing packets as it captures them, rather than
+printing packets from a saved capture file, it won't print
+the "frame number" field.  If the -V flag is specified, it
+prints instead a protocol tree, showing all the fields of
+all protocols in the packet.
+</PRE>
+</CODE></BLOCKQUOTE>
+<P>See <CODE>man 1 tethereal</CODE> for a full description of the read filter syntax. A
+few examples:
+<P>
+<UL>
+<LI><CODE>ip.addr eq 10.2.3.4</CODE> - either ip address equals 10.2.3.4
+</LI>
+<LI><CODE>ip.src ne 192.168.46.2</CODE> - source ip address is not equal to 192.168.46.2
+</LI>
+<LI><CODE>tcp.port ne 22</CODE> - EITHER tcp source port or destination port isn't equal
+to 22
+</LI>
+<LI><CODE>! tcp.port eq 22</CODE> - NEITHER tcp source port not destination port is equal
+to 22
+</LI>
+<LI><CODE>aim.channel eq 2 and ip.addr eq dhcp69</CODE> - AOL Instant Messenger
+channel 2 and ip host dhcp.69
+</LI>
+<LI><CODE>aim[17:9] == 61.6c.70.69.6e.69.73.74.61</CODE> - AOL IM Screen name is
+"alpinista"
+</LI>
+</UL>
+<P>
+<P>The tethereal search plugin is a very simple one that can be used as an example
+of plugin design; hopefully there will be a friendlier IDABench interface
+to tethereal soon.
+</LI>
+</OL>
+<P>
+<H2><A NAME="repeatqueries"></A> <A NAME="ss9.4">9.4 Repeat queries</A>
+</H2>
+
+<P>If a query is submitted that is identical to a prior query,
+and the image or composite binary dumpfile is still in the web spool
+directory, the query will NOT be reprocessed.  Instead, the cached results will
+be returned to the browser immediately. This allows one to bookmark or email
+the URL of a "results" webpage containing an image or postscript or binary
+results link.  These spooled files will be flushed once the
+IDABENCH_TEMP_FILE_LIFESPAN (in idabench.conf) has been surpassed.
+<P>
+<HR>
+<A HREF="IDABench-1.0-10.html">Next</A>
+<A HREF="IDABench-1.0-8.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc9">Contents</A>
+</BODY>
+</HTML>

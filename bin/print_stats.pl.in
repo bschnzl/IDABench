@@ -1,0 +1,62 @@
+#! /usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# print_stats.pl         - idabench Version 1.0
+#
+#
+#  Script to read a file dumped by statistics.pl containging a number of
+#  arrays and hashes with statistics from one or more tcpdump files, and
+#  print out those statistics.
+#
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.\n");
+
+my $pluginh = "$IDABENCH_LIB_PLUGIN_PATH/plugins.ph";
+unless (my $return = do $pluginh ){
+   die("Unable to parse configuration file $pluginh:\n$@\n") if $@;
+   warn "Unable to determine any plugin paths. No analysis will be done.\n" unless $return;
+}
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local our $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+#
+require "$IDABENCH_LIB_PATH/statistics.ph";
+use File::Basename;
+use Cwd;
+#
+# First calling parameter is raw Storable file to read. Second parameter is 
+# statistics output file.
+#
+$file_name = basename($ARGV[0]);
+$data_dir = dirname($ARGV[0]);
+$outfile = $ARGV[1];
+#
+# Fetch previous stored data if it exists
+#
+$data_file = "${data_dir}/${file_name}";
+&fetch_state($data_file);
+#
+# Print out the results.
+#
+&printem($outfile, $data_file);
+#
+# End of print_stats.pl
+#

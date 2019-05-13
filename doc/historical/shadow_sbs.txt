@@ -1,0 +1,2457 @@
+###############################################################################
+# By permission of the author, this document has been converted to plain text #
+# at 80 coulmn width from the original Microsoft Word document. In cases where#
+# filters, log lines, etc exceed 80 columns, they have been left at their     #
+# original length so that they display properly in terminals that are capable #
+# of greater than 80 columns, or or do not wrap long lines. As a result, page #
+# numbers in the Index section may be irrelevant.                             #
+# G. Bakos - June, 2003                                                       #
+###############################################################################
+
+Intrusion Detection -- Shadow Style
+
+A Primer for Intrusion Detection Analysts
+
+
+By
+
+Stephen Northcutt and the Intrusion Detection Analysis Team at the Naval
+Surface Warfare Center (Dahlgren Division)
+
+Version 1.2.2 980905
+
+November, 1998
+
+
+SECTION 1: INTRODUCTION AND BACKGROUND
+
+Ever growing Internet connectivity has spawned a new breed of vandals and
+criminals.  For a variety of motives, Internet crackers connect to machines
+around the world in their quest to break into sites.  Stopping these attackers
+is challenging.  Detecting when they have broken into a site or when they are
+attempting to break in is even more challenging.
+
+Designed by Vicki Irwin, Stephen Northcutt, and Bill Ralph of the Naval Surface
+Warfare Center Dahlgren, Shadow is one of the first freely available toolkits
+for detecting intruders.  Shadow is being used and evaluated by organizations
+around the United States and throughout the world for intrusion detection and
+network monitoring.   It runs on several UNIX operating systems and can be
+assembled using freely available software and either existing hardware or
+hardware that can  be purchased for less than $10,000.
+
+Shadow users are generally familiar with the TCP/IP protocol and gain the
+greatest value from the software when they understand how to perform intrusion
+detection and deeper analysis to identify new types of attacks that might not
+be detected by other tools.
+
+This document has been prepared for Shadow users and any other security
+professionals who feel more comfortable when they master their tool's
+underlying technology.  It documents filtering techniques and advanced
+intrusion analysis and, finally, Shadow installation.
+
+The Naval Surface Warfare Center (Dahlgren Division) Intrusion Detection team
+prepared this document with the help of the SANS Institute and system and
+network administrators from all over the world.
+
+This document's name, Intrusion Detection -- Shadow Style, promises more than a
+simple manual for implementing one type of intrusion detection system. Anyone
+searching for a primer on intrusion detection and analysis will gain value from
+the Sections 3, 4, and 5, whether or not Shadow is ever deployed at their
+sites.  The booklet includes: 
+
+Examples of attacks and what they mean,
+
+* Sample filters that enable the Shadow intrusion detects, and
+
+* Step by Step instructions for building your detection system.
+
+The system needs to be improved in many ways, and we are interested in your
+suggestions and software contributions so that Shadow's detection technology
+can be more sensitive, faster, and both easier to implement and easier to use.
+Please send your comments and suggestions to info@sans.org with the subject
+"Shadow Suggestions."
+
+Acknowledgments
+
+We give special thanks to the folks who helped us improve the software, in
+particular:
+
+* Scott Hoye, University of Virginia, who assisted in the analysis section of
+  this guide and was the primary tester of the system,
+
+* Dean Goodwell, Joint National Test Facility, who improved the installation
+  instructions and wrote an appendix on a specific installation,
+
+* Olav Kolbu, USIT, University of Oslo, who ported some of our shell scripts to
+  Perl,
+
+* Pedro Vazquez, Unicamp Brazil, who has helped us throughout the project with
+  his knowledge of tcpdump filters and their application to intrusion
+  detection.
+
+We also thank all the reviewers of this document.
+
+
+SECTION 2: THE SHADOW ARCHITECTURE
+
+Shadow uses the tcpdump program developed by the Department of Energy as a
+foundation and adds support software originally provided by the Naval Surface
+Warfare Center at Dahlgren and greatly enhanced by the SANS community.
+
+Shadow's data collection capability is based on the libpcap program developed
+by the Network Research Group at Lawrence Berkeley Laboratory. Libpcap provides
+an interface for application programs such as Network Flight Recorder (NFR) and
+Shadow to read data collected by the network interface on Unix systems.
+
+Though it is possible to instruct libpcap to gather more (or less) information
+from each packet, it is common for libpcap to collect the first 96 bytes of a
+packet for analysis. The Shadow programs examine the headers of the collected
+packet instead of its content. This approach to intrusion detection is called
+traffic analysis.
+
+To Push or To Pull?
+
+Most intrusion detection systems, whether network- or host-based, "push" alerts
+when they detect an event. Their most common push methods are 
+
+* sending e-mail to the system administrator,
+* sending a message to a pager, or
+* beeping to a monitor screen.
+
+We have such capabilities in commercial systems at the Naval Surface Warfare
+Center, and we use them.
+
+However, we have found that in day-to-day use, these systems have serious
+drawbacks.  Many of the alerts turn out to be false alarms. Many others turn
+out to be of little consequence; they are simple exploit scripts that we have
+already effectively blocked by our firewalls and other countermeasures.  The
+beeping or alerting becomes so annoying that we ultimately ignore the alerts.
+At that point, we are relying on firewalls, system protections and other
+countermeasures and the intrusion detection system loses most of its value.
+
+SHADOW's primary requirements are (1) to detect as many attacks as possible, as
+easily and efficiently as possible, (2) to ease reporting the attacks to CIRTs
+(Computer Incident Response Teams), and (3) to support analysis of the attacks
+to tune defenses.  We have found that all three of those objectives can be met
+if we "pull" the detects using a web browser whenever we have time and examine
+the kinds of probes and attacks directed against the organization. The web
+display is simple to use and easy to explain to new users.  One person can
+monitor multiple sites; in fact, we monitor over ten sites.
+
+Traffic Analysis vs. Content Analysis for Intrusion Detection
+
+The strength of a traffic analysis approach is that it enables us to examine
+and record every packet transmitted on the network.  In certain situations
+(such as educational or health care institutions) where privacy is a critical
+concern, traffic analysis may be the only acceptable approach to network
+monitoring.
+
+The weakness of traffic analysis, on the other hand, is that it misses certain
+attacks that can be detected only by examining the contents of packets to
+search for certain strings that indicate an attack.  Analysis that uses the
+content of the packet rather than the header is called content analysis or
+sometimes string analysis.
+
+The strength of content analysis is that it enables collection of all data from
+a connection once an attack string is detected.  Its weakness is that, in
+practice, traffic volume overwhelms the systems trying to read the content.  In
+the face of this problem, organizations that use content analysis often filter
+out many services, or ports, making the system and the organization blind to
+attacks using those particular ports or services.
+
+The Shadow Sensor and Analysis System
+
+A Shadow system consists of two parts: sensors and analysis stations. They
+might run on the same machine, but most careful sites separate them. The
+sensors glean headers from packets that traverse a network; analysis stations
+study those headers looking for intrusions (detects).
+
+Shadow Sensors
+
+The Shadow sensor is usually located outside the organization's firewall
+between the firewall and the internet connection, an area often called the
+demilitarized zone, or DMZ. One of the design features of the Shadow sensor is
+that it simply collects headers from all packets and has absolutely no
+knowledge of what it is looking for. This way, if the sensor were ever be
+compromised (which is not unlikely; any system outside your firewall should be
+considered high risk), the attacker would be denied any knowledge about what
+information your organization is using for filtering.  We recommend that you
+install a small hub to support the sensor.  Then, if you ever need to plug in
+an additional sensor such as a protocol analyzer to support your incident
+response team, you can do it easily.
+
+About the DMZ
+
+Throughout the history of electronic communications it has been common practice
+to identify the point of demarcation, the point that is the end of
+responsibility for one group and the beginning for another.  Early firewall
+implementers on the internet referred to the point of demarcation between the
+internet service provider (ISP) and an organization connected to the internet
+as the Demilitarized Zone (DMZ). DMZs are fruitful locations for sensors.  As a
+rule of thumb, however, any point of demarcation is likely to be a good
+location to place a sensor and careful organizations deploy multiple sensors.
+The Shadow architecture easily supports multiple sensors.
+
+A Note On Forensics
+
+In an intrusion situation where you are collecting evidence and have a
+reasonable expectation the evidence will be used in court, it makes great sense
+to dedicate the sensor to evidence collection. It is entirely possible that all
+sensor logs and possibly even the sensor itself might be considered part of the
+evidence. Also, if the systems from which evidence is required are known in
+advance, you might wish to focus the dedicated sensor on those target
+system(s).  This enables your organization to turn over only relevant
+information about all the other network traffic outside parties.  Finally, a
+dedicated sensor might also collect the contents of the packets for more
+complete analysis.
+
+Shadow Analysis Station
+
+The analysis station is a computer located inside the firewall. Its job is to
+download and evaluate the header data collected by the sensor. Shadow uses
+filters on the analysis station to collect events of interest (such as probable
+attacks). When queried, the analysis station displays the information to a
+private web page.
+
+The web page sports a Graphical User Interface (GUI) that enables the analyst
+to examine information from other sensors and other time periods, to query the
+analysis system for more information about a host or a pattern, and also to
+create a report suitable for sending to a CIRT.
+
+The information displayed on the web page is the result of tcpdump filters
+matching various conditions and patterns in the data.  Intrusion Detection;
+Shadow Style details a large number of example filters that can flag
+interesting and potentially malicious events in traffic flow.
+
+Some patterns cannot be detected using the tcpdump filter language.  Worse,
+some attacks that are low and slow (such as a scan that uses one packet per
+day) probably will not be detected with the one-hour interval normally used for
+packet correlation studies.  An advanced, perl-based analysis tool has been
+included with the Shadow toolkit to handle these kinds of problems.
+
+Hardware Requirements
+
+The computers for the sensor and the analysis stations may be any Unix systems
+that can compile libpcap and tcpdump. The analysis system must allow root
+access to the network administrator and support a recent version of perl, gzip,
+the Apache web server and secure shell (ssh) on the analysis system. The sensor
+system also must allow root access to the network administrator and must
+support gzip and ssh.  Any of the 'open source' Unix-like systems (FreeBSD,
+NetBSD, Linux) should suffice
+
+Intrusion detection requires copious disk space -- multiple gigabytes on the
+sensor system and dozens of gigabytes on the analysis station. More than half
+of the system cost may be tied up in mass storage.
+
+The Shadow reference system uses a single nine gigabyte (SCSI Seagate) disk
+drive on the sensor and two twenty-three gigabyte Seagate Elite 23s on the
+analysis station -- almost 50 GB. Any large disk drive that is compatible with
+your Unix systems should work.  Several reviewers pointed out that
+organizations can save money by using non-SCSI drives.
+
+Inexpensive Pentium-class processors coupled with IDE disks enable extremely
+low cost systems to be built.  The sensor system doesn't even need a permanent
+monitor or video card.
+
+Architecture Summary
+
+In summary:
+
+* Shadow sensors record all traffic to and from a protected network.
+* Shadow sensors use tcpdump to record traffic.
+* Each record represents a packet observed by the sensor.
+* Records are bundled hourly and downloaded to the Analysis Station where files
+  may be filtered for attack patterns.
+* Results are displayed via a web server.
+
+SECTION 3: FILTERING PACKETS - STEP-BY-STEP
+
+The Shadow analysis process is less concerned with the payload or contents of
+the packets than with the header information.  Like a letter through the mail,
+Shadow is concerned with the information on the outside of the envelope, not
+the letter inside.
+
+The heart of Shadow's analysis station is a program called tcpdump which
+supports two kinds of network analysis:
+
+* It can collect raw packets
+
+* It can filter packets looking for activity patterns
+
+This section is a step-by-step guide for learning the language that controls
+tcpdump's filtering activities. The man page (documentation describing the
+program's operation and options) for tcpdump is an excellent resource, though
+its 18 pages can be daunting.
+
+Since most sites maximize their detection results by customizing the filters,
+they need to know the language used to create filters for intrusion detection .
+This section teaches that language using examples.  It begins with simple
+filters and progresses to more complex filters developed by combining simple
+filters. Finally, it shows a filter that searches for a long list of events one
+might wish to monitor.  A sample set of filters is included with the Shadow
+software so that the toolkit is ready to be customized right out of the box.
+
+Remember, in the Shadow architecture, the sensor reads raw packets from the
+network and saves them to a file. The analysis station reads those packet files
+and applies filters to look for specific patterns.
+
+Shadow's Logfile Naming Format
+
+Shadow file names have eight digits, with four pairs of digits created like
+this:
+
+98 = The year, 1998 (we aren't doing date mathematics so Y2K isn't an issue)
+01 = The month, January
+21 = The day
+16 = The hour in military time.
+
+We roll the files over hourly.  The files' suffix is '.txt', and, being
+compressed, they often have the additional '.gz' suffix. An example file name
+might be:
+98012116.txt.gz
+
+
+A Note for First Time Network Analysts
+
+A neophyte intrusion detection analyst should be very slow to panic! IMAP,
+PORTMAP, and so forth are common networking attacks, but are also commonly used
+services. Take time to learn how your site does business, network-wise. Once
+you start looking, it is probable that you will detect some attempted attacks.
+Most systems that are kept up-to-date with security patches will not be
+affected by these attacks.  Calm analysis is the best path to follow.
+
+Simple Filters
+Let's examine a set of simple, useful filters. These simple filters will later
+be combined with "and", "or", and so forth to create more complex filters.
+
+The Packet Record
+
+The first 96 bytes of a packet are available for header analysis. Tcpdump
+typically displays the packet in a human-readable format like this:
+
+Timestamp    Source  Source Port  >    Destination.DSTPort  Protocol
+00:00:05.327 example.org  1025    >  192.168.64.15.53         UDP
+
+The timestamp tells when the packet arrived (with millisecond precision or
+better).  The source site name (or IP address) is shown along with the source
+port number.  The destination IP address and port are displayed along with the
+protocol.  This standard format will be used throughout this document to show
+packet headers.
+
+It is the goal of the rest of this section to show simple filters that will
+choose 'interesting' packets from the real-time data stream so that they can be
+stored in a log file and subsequently analyzed either mechanically or by a
+human.
+
+Example 3.1: Simple Filter to Detect Telnet Packets
+
+Busy networks see millions of packets per hour.  Saving all their headers
+results in very large files, so the files are kept compressed. Here is the
+command to uncompress the binary log files and send the results to tcpdump, and
+at the same time filter the results for the desired packets:
+
+$ gunzip -c yourlogfile.gz | tcpdump -r - "tcp and dst port 23"
+
+The 'tcpdump -r -' command runs tcpdump and instructs it to read from a file
+(the '-' is the 'file name' and means 'standard input' -- the result of the
+gunzip) instead of a network interface.  The 'filter' is in quotes.  Only those
+packets that satisfy the 'filter' requirement will be 'tcpdump'ed.
+
+For the remainder of these filter examples, we will provide only the filter
+specification itself rather than the whole decompression command line.
+
+This filter selects those packets that have protocol type 'tcp' and destination
+port number 23.  Since the telnet protocol uses port 23, this filter selects
+telnet packets.  These packets are then printed in human readable format to the
+standard output (usually redirected into a logfile). Later, programs and humans
+will analyze the packets in the logfile.
+
+Example 3.2: A Filter for IMAP
+
+The following filter scans packets for tcp SYN packets sent to destination port
+143, the IMAP service, and a very common attack destination.
+
+tcp and (tcp[13] & 2 != 0) and (dst port 143)
+
+Note: The number in brackets after tcp "tcp[13]means the 14th byte (counting
+from 0) in the tcp header.  The term "!=" means "not equal to."  The ampersand
+"&" means mask bits starting from the right.  Here "2 != 0" means the bit in
+the second position from the right of the tcp code bits which means the SYN
+flag is set. 
+
+This filter above is pretty simple. The term "dst port" refers to the
+destination port. Most Unix computers have a file called /etc/services which
+provide names for these numeric ports. For instance: email (smtp) is TCP port
+25, telnet is TCP port 23 and so forth. IMAP, as we mentioned earlier, is port
+143.
+
+============ Begin Sidebar ... Please run alongside filter above)
+
+About SYN and FIN
+
+Many sites block IMAP (TCP port 143) because a vulnerability in this service
+was one of the most successful attack exploits ever. If the service is blocked,
+all that will be detected is the connection request (active open), which is a
+packet with the SYN flag set and no ACK. One variety of IMAP exploit script has
+been detected in which the packets have both the SYN and FIN flags set. The
+purpose of this might be to avoid completing the TCP three-way handshake and
+therefore possibly avoiding detection. By masking tcp[13] with ''& 3 != 0,''
+you get both the SYN and FIN; if you use ''& 2 != 0,'' you will only get SYN.
+
+============  end of sidebar
+
+If the filter matches a target pattern in a data file, tcpdump displays the
+results in the record format described earlier.  Here is an example from a file
+named 98012116.txt (which was created January 21, 1998, around 4 pm):
+
+16:33:14.296403 linux.zsagvari.c3.hu.35486 > 204.34.256.1.imap: S 0:0(0) win
+512
+
+The 'S' means the SYN flag was set.  The next numbers are in the format
+'first:last(nbytes)' which describes the sequence number fields; see the
+tcpdump(1) man page for details.
+
+Example 3.3: An ICMP Filter
+
+Here is a simple filter from the tcpdump man page that looks for all ICMP
+packets that are not echo requests or replies (i.e., not ping packets):
+
+	    icmp and icmp[0] != 8 and icmp[0] != 0
+
+ICMP message types are not listed in /etc/services. However, you may find
+/usr/include/netinet/ip_icmp.h to be helpful as it defines the names of the
+ICMP message numbers.
+
+ICMP, the Internet Control Message Protocol, is not usually exploited to break
+in to your site's computer systems.  It is, however, being used for numerous
+denial of service attacks. ICMP was designed as a network health indicator and
+if your machine were suddenly to exhibit a lot of "TIMEXs" (time exceeded),
+UNREACH (net, host, protocol ...  unreachable), or SOURCEQUENCH indicators,
+this could imply network problems.
+
+Time exceeded and port unreachable messages are also a potential result of
+running the traceroute program from a host computer at your site. Traceroute
+sends out packets to probe for the identities of all the routers along a
+network path and gathers the data it needs from the ICMP messages.
+
+Example 3.4: A Filter to Detect Broadcasts
+
+ip and ip[19] = 0xff
+
+One of the classic attacks with ICMP, in which very large ping packets are
+fragmented, is often combined with a broadcast. After all, why go for a system
+when it is just as easy to attack an entire subnet? Many automated scanners
+also send probes to broadcast addresses; this filter will detect these as well.
+A filter like the one above will detect broadcast ICMPs and any other
+broadcasts.
+
+Here is sample output from a filter match for ICMP:
+
+16:00:03.828071 fraggg.org > 128.256.15.255: (frag 27392:548@1480)
+16:00:03.896593 fraggg.org > 128.256.1.255: (frag 21248:548@1480)
+16:00:06.118729 fraggg.org > 128.256.15.255: icmp: echo request (frag 52480:1480@0+)
+16:00:06.250349 fraggg.org > 128.256.15.255: (frag 52480:548@1480)
+
+Fraggg.org could well be spoofed. When you send an ICMP echo request (ping) to
+a subnet broadcast address (e.g., 172.16.1.255), all the systems on 172.16.1
+are supposed to answer the computer that "pinged" them. If many subnet
+addresses are pinged and the source address is spoofed, the ensuing barrage of
+ICMP echo replies can flood fraggg.org's internet connection, thus effecting an
+attack on fraggg.org by your organization!
+
+============ Begin Sidebar ... Please run alongside material above
+
+Directed Broadcast
+
+If this type of broadcast appears on your network, it is likely that your
+router (or your internet service provider's router) is configured to allow the
+"directed broadcast" option.  We recommend that you disable this via the router
+configuration.  For further information please see
+http://www.quadrunner.com/~chuegen/smurf.txt .
+
+============ End Sidebar
+
+Example 3.5: Land Attack Filter
+
+Some computer systems freeze if they receive a packet in which the source
+address is spoofed to be the same as the destination address, another denial of
+service attack. Here is a filter to detect this:
+
+ip and ip[12:4] = ip[16:4]
+
+Example 3.6: A Filter Designed to Detect Hostile SNMP
+
+(udp port 161 or udp port 162) and not src net 172.17
+
+SNMP was developed for network management. However, adversaries can use SNMP to
+collect information about your networks and computer systems. Network
+appliances (such as routers, hubs and bridges) often have SNMP agents built in
+and, in addition, many other devices (such as print servers and X terminals)
+also have built-in SNMP agents.  These devices use a "community string" to
+control access. Many SNMP agents default to the community string 'public',
+which means just that.
+
+The example above shows how to provide an exception address. If the source
+network is 172.17.xxx.xxx, the packet will not be matched.  It is common for a
+site to allow connections of a certain type from another trusted network, but
+not to allow them in general.
+
+Example 3.7: A Filter to Watch for the Berkeley r-utilities
+
+ip and ( tcp dst port 512 or tcp dst port 513 or tcp dst port 514 )
+
+The r-utilities (rlogin, rcp, rshell and so forth) enable two trusted systems
+to exchange files and commands without authentication. Ideally, systems that
+need to do this type of trusted exchange across the internet will change to
+secure shell or some other more secure mechanism. Two problems arise with the
+use of r-utilities: (1) /etc/hosts.equiv and (2) individual user's .rhosts
+files. If a system has a "+ +" in its host.equiv (too often supplied by
+vendors), that means it trusts all users from all systems. Needless to say, it
+is wise to look for packets with r-utilities from unknown sites.
+
+This filter might be a good candidate to exclude an exception address. 
+
+Example 3.8: A Filter to Detect Access to Portmapper
+
+ip and dst port 111  
+
+Many /etc/services files call this port 'sunrpc'. RPCs tend to connect to the
+portmapper at either TCP or UDP 111 to find other services. This is a very old
+(and effective) gateway to a series of attacks. In late 1997, the Shadow team
+started to see an increase in portmap attempts.
+
+>From 98012403.txt:
+
+03:20:42.579548 netgate.srn.com.829 > ns2.nnnn.navy.mil.sunrpc: S
+3648872793:3648872793(0) win 512 <mss 1460> 03:20:45.547040 netgate.srn.com.829
+> ns2.nnnn.navy.mil.sunrpc: S 3648872793:3648872793(0) win 31744 <mss 1460>
+
+Note the 'S', or SYN packet flag. A firewall screens the DNS server
+ns2.nswc.navy.mil so that the sunrpc attempt never actually reaches it.
+
+Example 3.9: An NFS Filter
+
+NFS is a good service to keep an eye on, and here is a filter to do it:
+
+ip and udp port 2049
+
+05:17:50.562188 j.K.EDU.885 > dorad.nnnn.navy.mil.nfs: 40 null 05:17:52.553265
+j.K.EDU.885 > dorad.nnnn.navy.mil.nfs: 40 null 05:17:56.551772 j.K.EDU.885 >
+dorad.nnnn.navy.mil.nfs: 40 null
+
+Not all "hits" are intrusion attempts. Our assessment of the data series above
+is that it shows the results from an automated process with a typographical
+error that happens to be our server dorad's internet address. Since NFS can
+also run on TCP, it might be wise to modify the filter to say: 
+
+ip and udp port 2049 or ((tcp[13] & 2 != 0) and (dst port 2049))
+
+or 
+
+ip and udp port 2049 or tcp[2:2] = 2049
+
+Note that port 2049 might be NFS or it might be used for something else.  Don't
+panic the first time you run this!
+
+Example 3.10: A NetBIOS Filter
+
+Microsoft Windows For Workgroup, Windows 95, Windows NT and SAMBA all use a
+protocol called NetBIOS to communicate over the internet. This protocol uses
+ports 137, 138, 139 of both TCP and UDP. Here is a step by step construction of
+this filter, one part at a time:
+
+ip and ...
+
+will match both TCP and UDP. Now to match the port numbers 137, 138, and 139:
+
+  ... port 137 or port 138 or port 139
+
+Add parentheses to ensure correct parsing precedence:
+
+ip and (port 137 or port 138 or port 139)
+
+If the destination is NetBIOS nameservice (port 137) and source port is not
+using port 137, the connecting computer is probably SAMBA.  Under most
+circumstances you probably don't care, but if you do:
+
+ip and dst port 137 and not src port 137
+
+Example 3.11:  An X11 Filter  
+
+X11 is a protocol that enables a program run on one Unix host to display the
+results in a window on a potentially different X-enabled workstation.  If
+configured incorrectly, it is possible for an attacker to obtain a screen dump
+of what is currently shown on your workstation, monitor all of your keystrokes,
+or even insert their own keystrokes into some software that you may be running.
+X11 uses TCP port 6000 and sometimes the nearby higher ports.  An example
+filter for this would be:
+
+        tcp and (port 6000 or port 6001 or port 6002)
+
+or, perhaps better this way:
+
+ tcp and (tcp[13] & 2 != 0) and (dst port 6000 or dst port 6001 or dst port 6002)
+
+which detects packets with the SYN (Synchronize or open a connection)
+to these ports.
+
+Example 3.12: An IRC Filter IRC is a real-time chat system that runs over the
+Internet, usually using TCP port 6667. When an attacker compromises a Unix
+system, it is very common for the attacker to install an IRC server on that
+computer. Sometimes they will then use the server to chat with their cohorts
+about other attacks. So, even if your organization makes absolutely no use of
+IRC, it is useful to monitor for it since it can be a warning sign of a
+compromised machine. A filter for this is: 
+
+    tcp and port 6667
+
+Example 3.13:  An NNTP Filter
+
+
+NNTP is the protocol used for exchanging the messages that appear in Usenet
+newsgroups. If you have an NNTP server on your network that communicates with
+an external server (often the NNTP server of your Internet provider), you will
+undoubtedly see a huge amount of traffic for its TCP port number, 119. If you
+do not exchange messages with the outside world via NNTP, you might still see
+occasional packets, possibly from attackers that want to break into your
+server, but possibly also from attackers seeking sensitive information from
+your private internal newsgroups.
+
+A filter for NNTP is:
+
+        tcp and port 119
+
+Example 3.14:  A Filter to Detect Fragments
+
+Fragmentation is sometimes used to evade intrusion detection systems. Excessive
+fragmentation can also indicate problems with network configuration.  Sites
+that utilize NFS over the internet probably do not want to run this filter as
+NFS likes large data chunks and can create many fragments.
+
+A filter to detect fragments is:
+
+        ip[6:2] & 0x2000 != 0
+
+Example 3.15:  A Filter to Detect Socks
+
+The Socks security protocol runs on TCP port 1080, to which the Shadow team has
+detected several probes.  One CERT advises that there are exploits that enable
+an attacker to establish a connection to port 1080 and then bounce out from the
+system to attack or probe another computer. This way, the attack looks to other
+intrusion detection systems like it comes from your network.  It is important
+to detect SYN attempts to 1080 since it is a commonly used port for FTP and
+HTTP port counting.
+
+A filter to detect Socks is:
+
+tcp and (tcp[13] & 2 != 0) and (dst port 1080)
+
+Example 3.16: A "bad events" Filter
+
+Sophisticated filters can be constructed to scan for any set of events you want
+to detect. For example, here's a portion of a script called "bad_events" that
+is used to detect any packets that could indicate suspicious activity that
+might warrant further attention.
+
+In the next section, we provide a complete set of all the filter "atoms" the
+Shadow team was using the last time the code was frozen.  The purpose for the
+example filter shown here is to illustrate how the atomic filters with which we
+are gaining experience can be strung together with 'and's and 'or's.
+
+If the filter syntax appears to be a bit tricky, try a book called
+Internetworking with TCP/IP, Volume I by Douglas E. Comer, before trying
+anything really fancy. This book is a good investment if you are attempting to
+become an intrusion detection analyst for your organization.
+
+TCP/IP Illustrated, Volume 1 by Richard Stevens is another excellent resource
+that gives examples using tcpdump output. These books are popular, so you may
+be able to borrow one until your copy comes in.
+
+Here is an example filter that strings together all the atomic filters.
+
+( tcp and (tcp[13] & 3 != 0) and ( (dst port 143) or (dst port 111) or
+    (tcp[13] & 3 != 0 and tcp[13] & 0x10 = 0 and dst net 172.16 and dst port 1080)
+    or
+    (dst port 512 or dst port 513 or dst port 514)
+    or
+    ((ip[19] = 0xff) and not (net 172.16/16 or net 192.168/16))
+    or
+    (ip[12:4] = ip[16:4])
+  )
+)
+or
+( not tcp
+  and
+  not igrp
+  and
+  not
+  dst port 520
+  and
+  ( (dst port 111)
+     or
+     (udp port 2049)
+     or
+     ((ip[19] = 0xff) and not (net 172.16/16 or net 192.168/16))
+     or
+     (ip[12:4] = ip[16:4])
+  )
+)
+
+Example 3.17: Putting the Pieces Together
+
+Now that we have reviewed the syntax of the individual filter pieces and seen
+an example of a composite bad events filter, let's take a closer look at
+building a real system to use for automatic network monitoring.
+
+The first problem we have to address is that several of the tcp filters above
+will yield a lot of false alarms if users on your network are doing http, ftp,
+or exchanging email with the outside world -- and these are normal activities!
+
+For example, the Socks filter looks for tcp packets having either source or
+destination port 1080 where the syn flag is set. If the composite filter given
+in the previous example is used, the filter will grab tcp packets involving
+port 1080 where either (or both) the syn and fin flags are set.  Usually, we
+are interested in "active open" connections, i.e., the first connection in the
+tcp 3-way handshake. If we use the filters as given above, we will give false
+alarms on "passive open" tcp connections.
+
+Imagine a user on your network accesses a web page on some remote server.  They
+connect (the active open) to port 80 on the webserver and use a source port of
+1080. When the webserver responds back acknowledging the syn it received and
+sending its own syn (the passive open), it will connect to the client machine
+on port 1080 and use a source port of 80.  Notice that the passive open
+connection will meet the criteria of the filter we have discussed  (the
+destination port is 1080 and the syn flag is set).  However, this connection is
+clearly not the result of an attacker trying to execute an exploit on tcp port
+1080. Further, if we do not account for passive open connections, any attempt
+to look for "unknown" tcp port accesses (by defining what is "known" and
+looking for the rest) will be foiled by false alarms as the source port for an
+active open is typically chosen at random.
+
+The solution to this problem is simple: we look for tcp packets where the syn
+flag is set but the ack flag is not:
+
+tcp and (tcp[13] & 2 != 0) and (tcp[13] & 0x10 = 0)
+
+and note that this filter will also pick up connections where the syn and fin
+flags are set simultaneously.
+
+If we wanted to write a filter that specifically looks for tcp connections
+where the syn and the fin flags are set simultaneously, we would use the
+following:
+
+tcp and (tcp[1 3] &3 = 3)
+
+In fact, the Shadow team has recently seen connections coming to our networks
+having the syn, fin, ack, push, reset, and urgent flags all set at the same
+time. If you are looking for new attack patterns, it could be educational to
+screen for inbound packets having weird combinations of these flags set.
+
+For the system to be effective as a whole, it is necessary to enumerate all
+possible "events of interest" for which one might screen.  These components can
+be logically grouped together to yield a sophisticated filtering capability.
+
+At the Shadow site, we build several filters up from these components and then
+use a perl loop to call the filters in sequence since tcpdump can only handle a
+certain number of filters in a single invocation.  Of course, some of the
+filters may overlap and a given packet might be extracted from the data by more
+than one filter, so the loop is followed by a call to a perl program that sorts
+and groups the filter outputs, throwing away duplicate connections. The filters
+we have built are available at the website, as are perl programs we use in
+concert with the tcpdump output to provide more advanced capability. A
+subsequent section discusses some advanced techniques.  When You Get a New
+Pattern
+
+The Shadow team archives a growing library of patterns. We hope that Shadow
+users everywhere will help us to continue this work.  If you see a unique and
+unusual pattern with your Shadow system, please sanitize the source and
+destination addresses and mail the pattern and what you have been able to
+determine about it to snorthc@nswc.navy.mil.  Please obfuscate the source and
+destination addresses first!
+
+SECTION 4: ANALYZING FILTERED PACKETS Display the Information for Maximum
+Analytical value
+
+Let's consider the filter system described so far. the sensor in the DMZ is
+collecting data; yes, a lot of data.  You have examined this data with filters.
+
+When the files get very large, it takes increasingly large amounts of time to
+parse the files with filters. Tasks that take time and effort motivate many
+people to quit performing those tasks. For this reason, information display is
+every bit as important as filtering.
+
+One of the advantages of the Shadow architecture is that a single analysis
+station can support multiple sensors (but make sure you stagger the file
+downloads in the cron files so that you aren't filtering the sensor data from
+multiple sensors at the same time, of course).
+
+Introduction to the Display System
+
+The fetchem.pl perl script writes the information from filter matches in html
+format into a directory that is served by the web server.  Those responsible
+for watching the network use their web browser to see what is going on. The web
+files with events flagged by the events filters are chained by forward and back
+arrows, so the analyst can easily go from hour to hour (i.e., from data file to
+data file).
+
+Robert Niles' dir-it is a program that creates and updates the home page that
+indexes all the data; it is included in the Shadow toolkit source distribution.
+
+There are many web servers available. The one that we have used for displaying
+intrusion detection information for several years is the popular freeware
+Apache web server. It is available from http://www.apache.org.
+
+Using a "bad_events" Filter to Survey Your Network
+
+Intrusions are detected exactly one way.  By one technique or another, they are
+isolated from the traffic stream and found to be interesting (abnormal),
+non-business related traffic.  The "easy" detects in intrusion detection for a
+traffic analysis approach are the services that could not possibly be part of
+your organization's normal business related traffic. 
+
+One great way to start is to locate your organization's firewall policy.  This
+way you can determine the things your organization has decided to allow.
+Remember the great axiom of firewall policy:
+
+      That which is not specifically allowed is prohibited.
+
+Therefore all TCP and UDP ports below 1024 that are not allowed should be
+flagged with the bad events filter.  All TCP ports above 1024 that are not
+allowed can be flagged if there is a SYN packet to that port and all UDP ports
+above 1024 to ports that are not allowed should be flagged.
+
+If your organization does not have a firewall (or the firewall is extremely
+permissive), you will need to write a set of filters that will let you examine
+all traffic and then determine statistically which ports are on normal business
+traffic and then monitor for exceptions.  For TCP:
+
+((tcp and (tcp[13] & 2 != 0) and dst net 192.168 and tcp[2:2] < 1024) ...
+
+This filter will list all SYN packets or attempts to open a connection to a
+port below 1024 for the destination network 192.168 (put your network here, of
+course).  If you want to see all incoming connections, simply modify the filter
+to say:
+
+((tcp and (tcp[13] & 2 != 0) and dst net 192.168) ...
+
+See Section 3.16 for more details.
+
+============= (Begin Sidebar ... Please run alongside the two paragraphs above
+
+TCP and UDP services can be partitioned into two categories, those ports below
+1024 and those above.  The reasons for this are rapidly becoming historical.
+On Unix systems, root level access was required to operate a service below port
+1024.  The idea was that such a service could be trusted since anyone with root
+access was presumably trustworthy. Further, the ports below 1024 are fairly
+well defined and used consistently (i.e., TCP port 25 is very likely to be
+sendmail; 23 telnet; and so on).
+
+Port numbers above 1024 are pretty dicey.  For instance, TCP port 1080 may be
+for Socks, but if you want to detect a probe on Socks you will need to look for
+a SYN packet (active open) to TCP 1080, otherwise you will detect a lot of
+perfectly normal FTP and HTTP file transfers.
+
+In a file transfer, both the source port and the destination port generally
+count up.  In other words, for each packet that is transferred, both the source
+and destination increment by 1.  So if a file transfer started at destination
+port 1060, the next packet would go to 1061, then 1062 and soon pass 1080.
+When it passed 1080, it would match the filter, unless you had set the filter
+to look for an active open, showing a connection beginning at 1080.
+
+============= End Sidebar
+
+
+Beginning Intrusion Detection Now that you have completed surveying your
+network traffic and have created a bad_events filter to satisfy your needs, you
+can begin using this toolkit for intrusion detection.
+
+The crontab-initiated tcpdump filters will place the files of 'interesting
+events' in a directory arranged by hour.  As you use the web browser to click
+on each hour, you will see the events that were flagged during that time
+period.
+
+If you want further information on a particular event, you may want to run one
+of the analysis scripts supplied with Shadow.  For example, one of the most
+common and useful tools is the "one_day_pat.pl" program. Provide it with a date
+and a pattern and it will check all the hourly files for the pattern over the
+entire day specified and output this information appropriately.
+
+You can run one_day_pat.pl through the web GUI or from a command prompt shell.
+If you run it from the web interface, the date (-d) and the sensor or logger
+(-l) information is filled in automatically. If you choose to run
+one_day_pat.pl from the command prompt, you will need to supply these command
+line options, or the software will make a guess which might or might not be
+correct.  The additional option -n avoids name lookups and speeds operations
+substantially.
+
+For instance, if you check the hourly files and see an entry concerning
+srn.badguy.org and want more information about all actions involving
+srn.badguy.org for the day, try:
+
+  $ one_day_pat.pl -d 980520 -l NNNN -p 'host srn.badguy.org'
+
+and all traffic for that day to or from srn.badguy.org will be displayed.  This
+script is also helpful to test for events that are not in your bad_events
+pattern.
+
+The web page only displays the events matched by the bad_events filter or the
+additional perl scripts.  However, Networks are dynamic and it is wise to
+constantly monitor for change.  From time to time, we recommend that you try
+experimental filters to see what you  can detect.  As an example, when the
+Advanced Scanning Techniques (CERT Incident Note IN-98.04) were first detected,
+they did not match any of the atomic filters in the bad_events pattern.  This
+means they were not displayed.  However, some of the probers sent packets at a
+rate of more than seven different target hosts per hour, which is where we had
+our counter set on our analysis station.  So what was displayed on the bottom
+of the page were probing hosts which were flagged by the scan director.  To
+find out what they were doing we used one_day_pat.pl with their name:
+
+  $ one_day_pat.pl -d 980520 -l NNNN -p 'host hook'
+
+We got back a bunch of TCP resets to different hosts, but no other traffic:
+
+17:40:45.870769 hook.24408 > target1.1457: R 0:0(0) ack 674719802 win 0
+17:40:53.025203 hook.33174 > target2.1457: R 0:0(0) ack 674719802 win 0
+17:41:12.115554 hook.36250 > target3.1979: R 0:0(0) ack 674719802 win 0
+17:43:37.605127 router > hook: icmp: time exceeded in-transit 17:43:43.139158
+hook.44922 > target4.1496: R 0:0(0) ack 674719802 win 0
+
+The filter set in bad_events will need to be updated often.  New services and
+new probes and attacks are being developed all the time.  Be willing to
+construct filters and run them on the data, just to see what they will do.  You
+may discover a previously unknown attack technique.
+
+Please also note Shadow 1.4b (and later versions) has a specialized version of
+one_day_pat.pl that tests all sensors for twenty four hours and can find very
+stealthy probes.  Look4scans.pl uses filters that are located in
+/usr/local/logger/filters/generic which are the non-site dependent filters.  To
+use look4scans:
+
+ $ look4scans.pl -d 981003 -f {filter name of a generic filter} 
+
+For instance when we were trying to gather more information about probers who
+were using odd combinations of TCP code bits, we used the generic filter
+multiflags which is shown below:
+
+tcp and (not src port 80) and (tcp[13] & 0xf != 0) and (tcp[13] & 0xf != 1) and
+(tcp[13] & 0xf != 2) and (tcp[13] & 0xf != 4) and (tcp[13] & 0xf != 8) and
+(tcp[13] & 0xf != 9) 
+
+When we ran:
+
+ $ look4scans.pl -d 981003 -f multiflags
+
+We discovered the information that lead to this:
+
+09:42:16.839047 prober.30975 > CONDOR.60: SFRP 2029977660:2029977691(31) ack 2029977660 win 60 urg 60 <[bad opt]> (DF)
+11:08:51.046434 prober.14690 > ROBIN.12916: S 962736756:962736805(49) win 12916 urg 12916 (DF)
+11:36:59.781247 prober.30974 > CONDOR.x400-snd: SRP 2029912168:2029912244(76) ack 2029912168 win 104 urg 104 <[bad opt]> (DF)
+12:37:46.893338 prober.30973 > EAGLE.64: FRP 2029846592:2029846625(33) ack 2029846592 win 64 urg 64 <[bad opt]> (DF)
+
+The machine named Prober, with no stimulus or other traffic, is sending odd TCP
+header combinations to core (DNS/MAIL) servers.  We also see this is occurring
+at a slow (<2 packets/hour) scan rate.  The purpose is apparently to test for
+various TCP stack responses, perhaps in order to determine the operating system
+of the target.
+
+Trying experimental filters can also help revise assumptions by providing
+additional information.  For months when we saw large numbers of icmp echo
+requests we felt they were either an attempt to execute a denial of service
+(Smurf) or to develop a network map (Pingsweep or Pingmap).  
+
+One day Vicki Irwin, a Shadow analyst, suggested we test for size. Normally,
+the ip header would be 20 bytes (if no options are set), the icmp header on an
+icmp echo request is 8 bytes, and the standard size for the data payload on an
+icmp echo request is 56 bytes. So if the total length of the ip datagram
+carrying the echo request is > 20 + 8 + 56 = 84 bytes then that could be an
+indication that something is up.
+
+The decimal number 84 is 00000000 01010100 in 2-byte binary format, so in hex
+that would be 0x0054. And then the filter is:
+
+icmp and (icmp[0] = 8) and ip[2:2] > 0x0054
+
+When we ran this filter against the data, a lot of the Pingsweeps matched.  Why
+would anyone send large packets to do mapping, or could it be denial of service
+after all?  And how big are those pesky pings?
+
+500 in hex is 01f4, so how about:
+
+icmp and (icmp[0] = 8) and ip[2:2] > 0x01f4
+
+And they still matched.  We could try 1000 bytes:
+
+icmp and (icmp[0] = 8) and ip[2:2] > 0x03e8
+
+You guessed it, they still matched.  For futher information about how you can
+use large ICMP packets, please take a look at p.152 in Stevens' TCP/IP
+Illustrated Volume 1. He gives an example of someone attempting to use pings to
+determine the MTU of a dialup slip link. In this case the MTU is 552 and
+Stevens sends pings at 500 and 600 bytes to figure out what is going on.  
+
+We hope this example illustrates how one can use experimental filters to detect
+things that would otherwise be missed.
+
+It is an essential task of intrusion detection to observe your site and learn
+its quirks. You must be able to detect the smallest deviance from the ordinary.
+The examples given above are only a few of the many types of attacks or probes
+you might see as you track your network data.
+
+Although you may have a lot of data to examine, your effectiveness depends upon
+your being careful enough to observe the indications of an attack and be able
+to spot such an instance even if it is hiding in the middle of a huge amount of
+data.  Again, this is where the "one_day_pat.pl" may become quite useful.
+Remember:  attackers are persistent and are always trying new methods to gain
+access to your systems.  It is vital that you know what constitutes standard
+traffic on your system and be sensitive to anything unusual.
+
+Responding to a Detect: What if You Find Something?  If you are checking your
+hourly files and find something that looks suspicious but not really scary, the
+next logical step is to run "one_day_pat.pl" as described above to get more
+information. It is important to keep an accurate audit trail of everything that
+you discover in case the information is needed later to support recovery, or
+even prosecution. A better way to run "one_day_pat.pl" is to collect its
+results into a file.  This can be done as follows:
+
+$ one_day_pat.pl -d 980520 -l NNNN -p 'host srn.badguy.org' > host.time
+
+then you can run
+
+$ tail -f host.time
+
+to view the results in real time as the command runs. The advantage of adopting
+this approach is that you will have a record of every action that you took.
+One helpful option you may want to include when using "one_day_pat.pl" is the
+-n option.  This option causes the results to be displayed as only IP
+addresses, without wasting time matching IP addresses with names.  If you are
+only concerned with IP addresses, this option may be useful to you.
+
+If you are in a hurry, because what you saw on your screen was fairly scary,
+then you may want to run tcpdump directly on the hourly file (without name
+lookups using -n) for faster results. The following command will accomplish
+this:
+
+$ tcpdump -n -r 98051512 'host 192.168.1.1' > host.time $ tail -f host.time &
+
+Whether you run one_day_pat.pl or tcpdump directly on an hourly file, now you
+can examine the data and decide whether you have a problem.
+
+There are several things you might notice. If the packets are only incoming
+without replies, then your firewall and system protections are probably
+effective.  If there are replies to the sending host, but they are ICMP and
+they say "port unreachable", then again you might be OK. This is not great,
+though, since it is an indicator that either the packets are getting through
+your firewall or the external interface of your firewall has knowledge of your
+internal network.
+
+If you see other replies, you probably want to alert your organization's
+computer incident response team.  It is a good idea to set up some sort of
+reporting system in which the details of an incident are recorded for future
+use; you never know when this information will be useful, whether it be
+evidence for prosecution or a record for comparison with future incidents.  For
+further information on how to establish an incident handling team or how to
+respond to incidents, see the SANS Computer Security Incident Handling
+Step-by-Step Guide (http://www.sans.org).
+
+Many sensors have enough power that you can run an additional session of
+tcpdump with a filter to watch the attacker. There have been cases where an
+attack has come from several systems on a network, so you may want to collect
+information on the entire net. The following command sequence illustrates this:
+
+$ ssh -l root sensor
+# df cd /LOG mkdir host.date; cd host.date tcpdump -n 'net 192.168.1' > time &
+# tail -f time &
+
+This way you will have information to provide the incident handling team.
+Don't forget to stop the tcpdump process soon or later.
+
+We strongly advise that you test this procedure before an incident. It is
+recommended that you establish a secure shell key relationship with your
+incident handling team in advance of an incident so that you can transfer
+incident information in an encrypted manner to protect against any potential
+network sniffers.
+
+Enhancing your Intrusion Detection Capability Intrusion detection is much more
+than just looking for a few bad events. How can we improve the capability of
+the system?
+
+Sort the Data for Display and Resolve Hostnames from IP addresses In order to
+display the traffic culled by the filters you have constructed, it is useful to
+sort the traffic in some meaningful way. Tcpdump will present the traffic to
+you sorted chronologically. If you are looking for scans or single line
+connections amidst a torrent of denial-of-service ping broadcasts (for
+example), you must sort and group the traffic appropriately to make subtleties
+stand out. Our current solution is to group the connections by source IP
+address and insert a blank line in the display between groups of connections
+originating from the same source. In this way scans become immediately obvious,
+and very noisy/overwhelming attack connections are clustered together and set
+aside so that the analyst can see the more subtle connection attempts.
+
+The first step in this process is to run tcpdump with the -n option set. This
+option setting tells tcpdump not to resolve the hostnames, but rather to leave
+the IP addresses in numerical dot notation.  The resulting traffic may then be
+parsed and sorted by source IP and then by time. As the traffic is written to
+the output, we check for and discard duplicate lines in the sorted data. When
+the source IP changes we insert a blank line. The script we use to do these
+tasks is available from the NSWC website.
+
+Being human, we would prefer to read host names as opposed to IP addresses.
+Thus we sometimes run another script that reads the sorted output, resolves the
+host names from the IP addresses and re-insert them as tcpdump would have. A
+short perl snippet that performs the name resolution is given below.
+
+#! /usr/local/bin/perl $ip  = $ARGV[0]; @octets = split(/\./, $ip); $binary_ip
+= pack "c4", $octets[0], $octets[1], $octets[2], $octets[3]; hostinfo =
+gethostbyaddr($binary_ip, 2); $hostname = $hostinfo[0]; print $ip, "
+",$hostname,"\n";
+
+This snippet should be executed with a single command line argument that is the
+IP address in standard 255.255.255.255 type notation. The resulting hostname is
+printed to the screen provided the DNS server is able to resolve the IP
+address.
+
+Looking for Host Scans Independent of Protocol or Attack Type One way to detect
+unusual activity on a network is to search for source IP addresses that are
+attempting to connect with many destination hosts over a given time period. We
+can find such hosts of interest independent of any particular protocol or
+attack type; in fact, looking for scans in this manner is a good way to detect
+new attack patterns.
+
+For example, the Shadow team has recently been observing scans of our network
+using tcp-reset packets. It is both time-consuming and uninteresting to monitor
+all reset packets sent to all hosts on a network, as this is a normal
+occurrence in tcp communication. However, these connections become more
+interesting when one observes a single host from the outside world sending
+reset packets to many machines on your network when no other dialogue has taken
+place.
+
+The best way to screen for these connections is to look for inbound reset
+connections where no other traffic between the source and destination hosts has
+occurred. However, such a program will have difficulty executing fast enough to
+perform hour-by-hour analysis and the attack type will be limited to resets
+only.  The next best thing in terms of detecting this attack is to screen for
+one-to-many correlations between source and destination IP addresses.  We have
+discovered that this is a great way to find new probing or mapping techniques.
+
+Another application finds scans that are embedded in a great deal of normal
+traffic. For example, monitoring all udp 53 (domain name server) and udp 137
+(netbios name service) connections would be overwhelming o impossible on
+high-traffic-volume networks. However, sites are commonly scanned on these
+ports where hackers are looking for nameservers or machines running netbios. A
+scan-finder as discussed above is able to extract these scans out of the noise.
+
+How does one write a program to do such a thing that does not take infinite
+time to execute? For example, we might write a program to make a list of all
+the source IP addresses that are sending connections to our protected network
+(tcp, udp, icmp, ..., everything). Then, for each source IP in the list, we
+would make another list of all the destination hosts to which the source is
+connected.
+
+Using this scheme, each time a new connection is considered, we must search the
+entire list of source IPs to determine whether the source has been previously
+added to the list.  Then, if the source host is already listed, we must search
+the corresponding list of destination IPs to find whether the current
+destination host has already been recorded. In the beginning, while the lists
+are short, this process proceeds quickly. But, as the list of source addresses
+grows, the search becomes slower.  Similarly, in the case of a large network
+scan, the list of destination addresses (corresponding to a given host) grows
+very large, thus slowing the search.
+
+Our solution to this problem is given at the NSWC website.  The basic idea is
+as follows: we first filter the raw data using tcp dump. We grab all inbound
+traffic except tcp connections having source port 80. We consider only inbound
+connections in order to reduce the amount of traffic that we have to process.
+We exclude tcp connections having source port 80 to avoid mistaking the
+connections back from a commonly accessed webserver for a scan. The tcpdump
+filter is simple:
+
+(not src net 192.168) and not (tcp and src port 80)
+
+This filter is then run with the -n and -t options set on tcpdump. The -n
+option tells tcpdump not to resolve the IP addresses into hostnames and the -t
+option suppresses the timestamp in the printed output. The result is piped to a
+file that is then sent to  sort -u (to discard duplicates while sorting
+according to IP address).
+
+We are able to sort by source IP address because we have thrown away the
+timestamp and hence the source IP is the first thing on the data line. Further,
+since we have ignored the timestamp, connections between hosts that are
+identical except for when they occurred will not be considered.  In this way,
+we are able to exploit the efficient coding of the sort routine (which is much
+faster than perl) and reduce the data further by throwing away duplicate
+connections.
+
+The final step is to run a perl program that examines the filtered sorted
+unique output to determine which source hosts contacted many destination hosts.
+Because we have sorted the data according to source IP address, we are able to
+sidestep the time-consuming process of searching for the source IP in the list
+we construct each time a new data line is considered.
+
+The final challenge then is to provide for the case where many, many (thousands
+or more) of destination hosts are contacted by a single source IP. To handle
+this case we attempted to reduce the search space by using an embedded hash
+table structure. Under this scheme, for a given source IP, we search for the
+first octet of the destination IP in a hash that consists only of previously
+found first octet numbers (max number of elements is 256), then once the first
+octet is found, it points to another hash containing recorded second octet
+numbers (corresponding to  the first octet). The hash of second octet numbers
+is searched (again max search space is 256 elements) and a match here points to
+a hash of third octet numbers and so on. The final value of the fourth octet
+hash is the number of times this destination host was accessed by this source.
+Again, the code is available at the NSWC web site.
+
+Reducing the Data Volume We have found there is a practical limit to the
+analysis that can be performed with filters. The tcpdump program collects a LOT
+of data.  In order to perform more advanced analysis, it is necessary to reduce
+the data. We do this in two steps.
+
+First, we use filters to separate the data by protocol.  Then, we further
+reduce the data to a common format that we use to store information from any
+sensor.
+
+The reduced data is comma delimited so it can easily be imported into databases
+or spreadsheets and contains the following fields: date, time, src, srcport,
+dst, dstport, protocol. We refer to this format as bcp, since it is Bulk CoPied
+from all analysis stations to a huge database for storage or historical
+analysis.
+
+Our first step is to convert from hourly to daily files. We do this because, in
+comparing historical information, delays are created by the overhead involved
+in opening and closing hourly files. Here's how we do conversion and reduction.
+
+We use tcpslice to concatenate hourly files into daily files. We can put a
+whole day's worth of files together using tcpslice. From our /LOG/date, the
+directory holding the day's data we type:
+
+          $ tcpslice *.9802* > tcpdump.980202
+
+Tcpslice cats all the hourly files into a daily file tcpdump.980202, the daily
+file for February 02, 1998.
+
+Next, we extract the various protocols we are interested in as part of the data
+reduction. At our site the primary protocols in use are: TCP, UDP, ICMP, IGMP
+and IGRP. To extract UDP into an ascii file for further processing:
+
+          $ tcpdump -r tcpdump.980202 udp > udp.980202
+
+We repeat this operation for each protocol we are interested in keeping for
+long term analysis. We run some cursory tests for ICMP looking for routing
+updates that are from external addresses, but do not archive IGRP or IGMP. We
+do reduce and archive for the UDP, TCP, and ICMP protocols.
+
+Then we run a simple test on the data. 
+
+$ tcpdump -r tcpdump.980202 "(not udp and not tcp and not icmp and not igrp and
+not igmp)" > other.980202
+
+From time to time we find some interesting IP traffic that is not one of the
+protocols.
+
+If other is not an empty file then it would pay to invest some time tracking
+down the source and destination addresses to sort out what is going on. There
+are a variety of services including hardware encryption units that use IP
+datagrams of various types in order to communicate.
+
+While it is important to know how to do all these things, it does get
+monotonous, so we have included the consolidate.pl script to take all the
+hourly files and produce daily files from them.
+
+Finally, in order to compare results over time, we convert the protocol files
+to bcp format using translate.pl. Another advantage of converting files to this
+format is that its universal format allows us to integrate data from different
+kinds of sensors.
+
+SECTION 5: PATTERN ANALYSIS FOR INTRUSION DETECTION (BY EXAMPLE) Pattern
+matching is a powerful tool for network intrusion detection. Sensors placed at
+strategic locations can provide a wealth of information - full of potentially
+important patterns -- to the analyst who seeks to protect and efficiently
+operate a network connected to the internet.
+
+This presentation focuses on intrusion detection using data collected from a
+Linux-based sensor running on a Pentium PC positioned outside the firewall of a
+large DOD organization. Data is collected via tcpdump, a publicly available
+software package based on the libpcap library. We consider protocols from the
+TCP/IP protocol suite, and look both for attacks having known signatures and
+for anomalous network traffic by defining what normal traffic looks like.
+
+Six types of attacks and detection methods are discussed:
+
+* Denial of Service Attacks Network Vulnerability Scanning Machine
+* Vulnerability Scanning Network Mapping / Information Collection Filtering for
+* intrusion detection with tcpdump Subtle and Stealthy Attacks: detection and
+* interpretation
+
+Denial of Service Attack Patterns The simplest and most commonly executed
+denial of service attack causes a machine to crash or grind to a halt by
+barraging it with icmp echo requests or replies.  In the example shown in
+Pattern 1, the IP address spoofed.pound.me.net is spoofed by the attacker. The
+Class C nets 192.168.15 and 192.168.1 receive broadcast echo requests and every
+machine on the network replies to the broadcast. By spacing the requests
+closely in time, the attacker causes spoofed.pound.me.net to crash under the
+barrage of echo replies. Meanwhile, the 192.168.1 and 192.168.15 nets become
+clogged with traffic and the machines slow their processing tasks in order to
+devote resources to responding to the echo requests. The common name for this
+denial of service is the "Smurf" attack, and the CERT advisory is number
+CA-98.01. The distinguishing characteristics of the Smurf attack are the
+spoofed source IP address and the direction of the echo requests to broadcast
+addresses.
+
+The pattern of alternating the x.x.15 and x.x.1 subnets is commonly seen. It is
+not known why these two subnets are so often targeted, except that these
+subnets are often used for infrastructure machines.
+
+In Pattern 1 below, the format is:
+
+Timestamp SourceIP > DestinationIP: icmp Pattern 1: 00:00:05.327
+spoofed.pound.me.net > 192.168.15.255: icmp: echo request 00:00:05.342
+spoofed.pound.me.net > 192.168.1.255:  icmp: echo request 00:00:14.154
+spoofed.pound.me.net > 192.168.15.255: icmp: echo request 00:00:14.171
+spoofed.pound.me.net > 192.168.1.255:  icmp: echo request 00:00:19.055
+spoofed.pound.me.net > 192.168.15.255: icmp: echo request 00:00:19.073
+spoofed.pound.me.net > 192.168.1.255:  icmp: echo request 00:00:23.873
+spoofed.pound.me.net > 192.168.15.255: icmp: echo request 00:00:23.889
+spoofed.pound.me.net > 192.168.1.255:  icmp: echo request 00:00:33.503
+spoofed.pound.me.net > 192.168.15.255: icmp: echo request 00:00:33.576
+spoofed.pound.me.net > 192.168.1.255:  icmp: echo request
+
+Pattern 2 shows another common icmp echo request attack pattern. In this case,
+the packets addressed to 255.255.255.255 are source-routed to our network and
+the 0.0 broadcasts target the older-style machines.
+
+Pattern 3 shows another common sequence consisting only of the source-routed
+packets. These attacks generally continue at the rate suggested in the examples
+for hours and days at a time.  Keep in mind that other networks may be included
+in these patterns besides your own if there is any lag at all between requests.
+Pattern 2: 05:20:48.261 spoofed.pound.me.net > 192.168.0.0:     icmp: echo
+request 05:20:48.263 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:21:35.792 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:21:35.819 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:22:16.909 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:22:16.927 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:22:58.046 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:22:58.061 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:23:39.205 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:23:39.207 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:24:20.336 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:24:20.367 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:25:01.481 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:25:01.498 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:25:42.645 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:25:42.660 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:26:23.757 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:26:23.777 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:27:04.925 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:27:04.927 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:27:46.047 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:27:46.079 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+05:28:27.191 spoofed.pound.me.net > 192.168.0.0:     icmp: echo request
+05:28:27.217 spoofed.pound.me.net > 255.255.255.255: icmp: echo request Pattern
+3: 19:53:16.134 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+19:53:27.234 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+19:53:38.336 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+19:53:49.438 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+19:54:00.518 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+19:54:11.619 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+19:54:22.720 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+19:54:33.825 spoofed.pound.me.net > 255.255.255.255: icmp: echo request
+
+The next example shows a half-successful icmp denial-of-service attack in
+action. In this case, Pattern 4, we see a router protecting the real host
+spoofed.pound.me.net from the barrage of echo replies being generated at our
+network.  As the router discards the packets, it sends icmp error messages back
+to our 192.168.1.x machines. Note that the 192.168.1 net will be slowed by the
+burden of the echo traffic.
+Pattern 4:
+03:30:31.652433 router.pound.me.net > 192.168.1.1: icmp: host spoofed.pound.me.net unreachable
+03:30:31.653107 router.pound.me.net > 192.168.1.2: icmp: host spoofed.pound.me.net unreachable
+03:30:31.862459 router.pound.me.net > 192.168.1.1: icmp: host spoofed.pound.me.net unreachable
+03:30:31.864012 router.pound.me.net > 192.168.1.3: icmp: host spoofed.pound.me.net unreachable
+03:30:31.865914 router.pound.me.net > 192.168.1.4: icmp: host spoofed.pound.me.net unreachable
+03:30:31.866646 router.pound.me.net > 192.168.1.5: icmp: host spoofed.pound.me.net unreachable
+03:30:32.422559 router.pound.me.net > 192.168.1.1: icmp: host spoofed.pound.me.net unreachable
+03:30:35.802449 router.pound.me.net > 192.168.1.6: icmp: host spoofed.pound.me.net unreachable
+03:30:35.954542 router.pound.me.net > 192.168.1.6: icmp: host spoofed.pound.me.net unreachable
+03:30:35.976808 router.pound.me.net > 192.168.1.5: icmp: host spoofed.pound.me.net unreachable
+03:30:36.112835 router.pound.me.net > 192.168.1.2: icmp: host spoofed.pound.me.net unreachable
+
+Pattern 5 shows the denial of service attack from yet another perspective. In
+this case, a router is refusing to route the broadcast echo requests before
+they reach the target networks. That is, the router is intercepting the packets
+on the way out. Assuming the packets originate somewhere near the far.away.com
+network, the router router.far.away.com stops the broadcast packets from
+proceeding and sends an icmp error message back to the source. However, since
+the source IP addresses are spoofed the error messages are routed to our
+networks, where the packets appear to have originated.
+Pattern 5:
+00:00:06.754739 router.far.away.com > 192.168.24.163: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+00:00:12.050836 router.far.away.com > 192.168.18.34: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+00:00:16.778674 router.far.away.com > 192.168.24.205: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+00:00:17.436264 router.far.away.com > 192.168.24.100: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+00:00:18.175952 router.far.away.com > 192.168.24.100: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+00:00:18.763302 router.far.away.com > 192.168.24.6: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+00:00:19.436072 router.far.away.com > 192.168.24.172: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+00:00:19.965784 router.far.away.com > 192.168.22.75: icmp: host 192.168.31.255 unreachable - admin prohibited filter
+
+A somewhat more aggressive attack of this form is known as the "ping-of-death"
+attack. In this attack, the icmp echo requests (pings) are larger than they
+normally would be and hence must be fragmented. Many machines cannot handle
+fragmented or oversized icmp packets and will crash or freeze if they receive
+them. The CERT advisory for this attack is CA-96.26.
+
+Pattern 6 shows a ping-of-death attack. In this particular example,
+big.pinger.org is targeting a web server on our network. The hostile source
+simultaneously attempts to crash the server with oversized ping packets and
+browses the web pages to see if the server is still alive. (The sequence
+numbers and other TCP specific information has been omitted for this example,
+only TCP active open connections are shown. Connections with destination port
+equal to 80 are http transactions.)
+
+The active open (SYN) TCP connections are formatted according to:
+
+Timestamp SourceIP.SourcePort > DestinationIP.DestinationPort: S 
+Pattern 6:
+00:12:06.698 big.pinger.org.1369 > www.mynetwork.net.80: S 
+00:12:09.954 big.pinger.org > www.mynetwork.net: icmp: echo request (frag 60948:552@0+)
+00:12:09.964 big.pinger.org > www.mynetwork.net:   (frag 60948:156@552)
+00:13:39.452 big.pinger.org > www.mynetwork.net: icmp: echo request (frag 1813:552@0+)
+00:13:39.472 big.pinger.org > www.mynetwork.net:   (frag 1813:156@552)
+00:13:39.635 big.pinger.org.1371 > www.mynetwork.net.80: S 
+00:13:48.171 big.pinger.org.1373 > www.mynetwork.net.80: S 
+00:14:11.835 big.pinger.org > www.mynetwork.net: icmp: echo request (frag 11285:552@0+)
+00:14:11.901 big.pinger.org > www.mynetwork.net:   (frag 11285:156@552)
+00:14:11.950 big.pinger.org.1374 > www.mynetwork.net.80: S
+
+The last denial of service attack pattern that we will discuss is the
+echo-chargen scan. This attack is illustrated in pattern 7. Here, the source IP
+address is again spoofed and the idea is to deny service to both the source and
+target. The source sends a request to the target's character generator port
+(19) using echo (7) as a source port. The target responds to the query by
+sending a stream of random characters back to the echo port of the source
+machine. The source then echoes the random characters back to the character
+generator that in turn causes another random character string to be generated.
+This pattern continues until one of the machines terminates the loop.  The
+apparent source machine will have difficulty responding to all of the echo
+requests, and the target networks will be clogged with the traffic as long as
+spoofed.pound.me.net responds.
+
+In Pattern 7 below the format is:
+
+Timestamp SourceIP.SourcePort > DestinationIP.DestinationPort: udp
+Pattern 7:
+08:08:16.155354 spoofed.pound.me.net.echo > 172.31.203.17.chargen: udp 
+08:21:48.891451 spoofed.pound.me.net.echo > 192.168.14.50.chargen: udp 
+08:25:12.968929 spoofed.pound.me.net.echo > 192.168.102.3.chargen: udp
+08:25:24.779435 spoofed.pound.me.net.echo > 192.168.102.3.chargen: udp
+08:42:22.605428 spoofed.pound.me.net.echo > 192.168.18.28.chargen: udp
+08:42:33.934939 spoofed.pound.me.net.echo > 192.168.18.28.chargen: udp
+08:47:21.450708 spoofed.pound.me.net.echo > 172.31.130.93.chargen: udp
+08:47:32.685521 spoofed.pound.me.net.echo > 172.31.130.93.chargen: udp
+08:51:27.491458 spoofed.pound.me.net.echo > 172.31.153.78.chargen: udp
+08:53:13.530992 spoofed.pound.me.net.echo > 172.31.46.49.chargen: udp
+08:53:25.282020 spoofed.pound.me.net.echo > 172.31.46.49.chargen: udp
+09:01:28.285296 spoofed.pound.me.net.echo > 172.31.149.67.chargen: udp
+09:01:39.889736 spoofed.pound.me.net.echo > 172.31.149.67.chargen: udp
+09:05:46.196868 spoofed.pound.me.net.echo > 192.168.154.96.chargen: udp
+09:05:58.240337 spoofed.pound.me.net.echo > 192.168.154.96.chargen: udp
+
+Network Vulnerability Scanning Attack Patterns
+
+Often we will observe a source host scanning a network for machines running a
+certain type of service. Pattern 8 shows a hostile source scanning our
+192.168.1 subnet for machines running imap (port 143), netbios (port 139),
+Socks (port 1080),  and DNS services (port 53). These are all TCP connections
+and only the initial active open (SYN) connection has been shown.  Notice the
+pattern of incrementing destination IP addresses and the short time interval
+between connection attempts.
+
+Pattern 8:
+10:53:57.951372 hostile.scan.com.7301 > 192.168.1.46.143: S 
+10:53:57.993072 hostile.scan.com.7367 > 192.168.1.47.143: S 
+10:53:57.997391 hostile.scan.com.7418 > 192.168.1.48.143: S 
+10:53:57.998690 hostile.scan.com.7421 > 192.168.1.54.143: S 
+10:53:58.001198 hostile.scan.com.7430 > 192.168.1.53.143: S 
+10:53:58.002513 hostile.scan.com.7496 > 192.168.1.52.143: S 
+10:53:59.947582 hostile.scan.com.10101 > 192.168.1.46.139: S 
+10:53:59.986003 hostile.scan.com.10167 > 192.168.1.47.139: S 
+10:53:59.993731 hostile.scan.com.10233 > 192.168.1.49.139: S 
+10:53:59.997864 hostile.scan.com.10299 > 192.168.1.50.139: S 
+10:53:59.999141 hostile.scan.com.10344 > 192.168.1.51.139: S 
+10:54:00.000779 hostile.scan.com.10410 > 192.168.1.52.139: S 
+10:54:01.941514 hostile.scan.com.12645 > 192.168.1.46.1080: S 
+10:54:01.985726 hostile.scan.com.12654 > 192.168.1.47.1080: S 
+10:54:01.993694 hostile.scan.com.12672 > 192.168.1.48.1080: S 
+10:54:01.996534 hostile.scan.com.12709 > 192.168.1.54.1080: S 
+10:54:01.997801 hostile.scan.com.12718 > 192.168.1.53.1080: S 
+10:54:01.999738 hostile.scan.com.12736 > 192.168.1.52.1080: S 
+10:54:03.976128 hostile.scan.com.15440 > 192.168.1.46.53: S 
+10:54:04.014408 hostile.scan.com.15486 > 192.168.1.47.53: S 
+10:54:04.248110 hostile.scan.com.15499 > 192.168.1.49.53: S 
+10:54:04.249351 hostile.scan.com.15554 > 192.168.1.50.53: S 
+10:54:04.250628 hostile.scan.com.15620 > 192.168.1.51.53: S 
+10:54:04.251952 hostile.scan.com.15686 > 192.168.1.52.53: S 
+
+Often we can identify a scan as resulting from the use of a certain
+(well-circulated) script. Patterns 9 and 10 show common scripted exploits
+widely circulated on the Internet. Pattern 9 shows a scan for imap servers, the
+script signature is the source port of 10143. Pattern 10 shows another scripted
+imap network scan where the source port of 0 is used and the SYN and FIN flags
+are both set on the TCP packets.  The purpose of the unusual TCP flag
+combination is presumably to avoid being logged by sensors set to look for
+SYN-only packets (e.g., TAMU's Netlogger). Also notice that the packet sequence
+numbers is the same for each host contacted. In both patterns, the attacker is
+looking for responses from the target machines that indicate that an imap
+server is running.
+
+Pattern 9:
+14:13:54.847401 newbie.hacker.org.10143 > 192.168.1.1.143: S 
+14:24:58.151128 newbie.hacker.org.10143 > 172.31.1.1.143: S 
+14:35:40.311513 newbie.hacker.org.10143 > 192.168.1.2.143: S 
+14:43:55.459380 newbie.hacker.org.10143 > 192.168.2.1.143: S 
+14:54:58.693768 newbie.hacker.org.10143 > 172.31.2.1.143: S 
+15:05:41.039905 newbie.hacker.org.10143 > 192.168.2.2.143: S 
+15:13:59.948065 newbie.hacker.org.10143 > 192.168.3.1.143: S 
+15:25:03.215362 newbie.hacker.org.10143 > 172.31.3.1.143: S 
+15:35:45.336385 newbie.hacker.org.10143 > 192.168.3.2.143: S 
+15:54:59.309457 newbie.hacker.org.10143 > 172.31.4.1.143: S 
+
+Pattern 10:
+13:10:33.281198 newbie.hacker.org.0 > 192.168.26.203.143: SF  
+     374079488:374079488(0) win 512
+13:10:33.334983 newbie.hacker.org.0 > 192.168.24.209.143: SF 
+     374079488:374079488(0) win 512
+13:10:33.357565 newbie.hacker.org.0 > 192.168.17.197.143: SF 
+     374079488:374079488(0) win 512
+13:10:33.378115 newbie.hacker.org.0 > 192.168.16.181.143: SF 
+     374079488:374079488(0) win 512
+
+Machine Vulnerability Scanning Attack Patterns
+
+In addition to scanning a network for machines running a particular type of
+server, we can consider a single machine and attempt to discern what services
+are running on it. Pattern 11 shows an excerpt from a portscan where all TCP
+ports were queried for services on a single target machine. The objective is to
+determine which ports have services running on them. Once an attacker knows
+what services are available to work with, he can further focus the attack.
+Pattern 11:
+09:52:20.811462 bad.guy.org.1788 > target.mynetwork.com.18: S 
+09:52:20.844837 bad.guy.org.1789 > target.mynetwork.com.17: S 
+09:52:20.876586 bad.guy.org.1790 > target.mynetwork.com.16: S 
+09:52:20.903545 bad.guy.org.1791 > target.mynetwork.com.15: S 
+09:52:24.367002 bad.guy.org.1792 > target.mynetwork.com.14: S 
+09:52:24.395297 bad.guy.org.1796 > target.mynetwork.com.13: S 
+09:52:25.349706 bad.guy.org.1797 > target.mynetwork.com.12: S 
+09:52:25.375756 bad.guy.org.1798 > target.mynetwork.com.11: S 
+09:52:26.573678 bad.guy.org.1800 > target.mynetwork.com.10: S 
+09:52:26.603163 bad.guy.org.1802 > target.mynetwork.com.9: S 
+09:52:28.639922 bad.guy.org.1804 > target.mynetwork.com.8: S 
+09:52:28.668172 bad.guy.org.1806 > target.mynetwork.com.7: S 
+09:52:32.749958 bad.guy.org.1808 > target.mynetwork.com.6: S 
+09:52:32.772739 bad.guy.org.1809 > target.mynetwork.com.5: S 
+09:52:32.802331 bad.guy.org.1810 > target.mynetwork.com.4: S 
+09:52:32.824582 bad.guy.org.1812 > target.mynetwork.com.3: S 
+09:52:32.850126 bad.guy.org.1814 > target.mynetwork.com.2: S 
+09:52:32.871856 bad.guy.org.1816 > target.mynetwork.com.1: S 
+09:52:32.923555 bad.guy.org.1819 > target.mynetwork.com.79: S 
+09:52:34.203913 bad.guy.org.1821 > target.mynetwork.com.78: S 
+09:52:36.212493 bad.guy.org.1822 > target.mynetwork.com.77: S 
+09:52:36.236889 bad.guy.org.1823 > target.mynetwork.com.76: S 
+09:52:36.264028 bad.guy.org.1824 > target.mynetwork.com.75: S 
+09:52:36.286556 bad.guy.org.1825 > target.mynetwork.com.74: S 
+09:52:36.314418 bad.guy.org.1826 > target.mynetwork.com.73: S 
+09:52:36.337039 bad.guy.org.1827 > target.mynetwork.com.72: S 
+09:52:36.366641 bad.guy.org.1828 > target.mynetwork.com.71: S 
+09:52:36.390532 bad.guy.org.1830 > target.mynetwork.com.70: S 
+09:52:36.413112 bad.guy.org.1831 > target.mynetwork.com.69: S 
+09:52:36.435624 bad.guy.org.1832 > target.mynetwork.com.68: S 
+09:52:36.457088 bad.guy.org.1833 > target.mynetwork.com.67: S 
+09:52:36.481007 bad.guy.org.1834 > target.mynetwork.com.66: S 
+09:52:36.508669 bad.guy.org.1835 > target.mynetwork.com.65: S 
+09:52:36.531770 bad.guy.org.1836 > target.mynetwork.com.64: S 
+09:52:36.555682 bad.guy.org.1837 > target.mynetwork.com.63: S 
+09:52:36.581866 bad.guy.org.1838 > target.mynetwork.com.62: S 
+
+The hacker community has developed and distributed special scanning tools that
+look for some of the well-known (exploitable) services. The portscan resulting
+from these tools is usually limited to specific well-known ports. For example,
+the portscan in Pattern 12 probes for only 6 services: telnet (port 23), http
+(port 80), imap (port 143), dns (port 53), pop-3 (port 110), and sunrpc (port
+111).
+
+Pattern 12:
+06:13:23.188197 bad.guy.org.6479  > target.mynetwork.com.23:  S 
+06:13:26.150250 bad.guy.org.6479  > target.mynetwork.com.23:  S 
+06:13:28.071161 bad.guy.org.15799 > target.mynetwork.com.80:  S 
+06:13:31.075201 bad.guy.org.15799 > target.mynetwork.com.80:  S 
+06:13:33.107599 bad.guy.org.25467 > target.mynetwork.com.143: S 
+06:13:36.071352 bad.guy.org.25467 > target.mynetwork.com.143: S 
+06:13:38.068035 bad.guy.org.3861  > target.mynetwork.com.53:  S 
+06:13:41.219400 bad.guy.org.3861  > target.mynetwork.com.53:  S 
+06:13:43.271220 bad.guy.org.14296 > target.mynetwork.com.110: S 
+06:13:47.831695 bad.guy.org.943   > target.mynetwork.com.111: S 
+06:13:50.714731 bad.guy.org.943   > target.mynetwork.com.111: S 
+06:13:56.737729 bad.guy.org.943   > target.mynetwork.com.111: S 
+
+The two portscans shown in Patterns 11 and 12 involve TCP ports and services
+only. UDP portscans are rarer and usually more erratic. Pattern 13 shows an
+example of a UDP port scan.
+
+In Pattern 13 below the format is:
+
+Timestamp SourceIP SourcePort > DestinationIP DestinationPort :udp
+Pattern 13:
+18:20:29   bad.guy.org  22555  >  target.mynetwork.com  22555 :udp
+18:20:35   bad.guy.org  10823  >  target.mynetwork.com  32927 :udp
+18:20:36   bad.guy.org  45402  >  target.mynetwork.com  33866 :udp
+18:20:37   bad.guy.org  46211  >  target.mynetwork.com   1318 :udp
+18:20:37   bad.guy.org  12257  >  target.mynetwork.com  50019 :udp
+18:20:37   bad.guy.org  41530  >  target.mynetwork.com  49246 :udp
+18:20:38   bad.guy.org  31696  >  target.mynetwork.com  63627 :udp
+18:20:39   bad.guy.org  55075  >  target.mynetwork.com  13893 :udp
+18:20:39   bad.guy.org  17032  >  target.mynetwork.com   5292 :udp
+18:20:40   bad.guy.org  30381  >  target.mynetwork.com  57795 :udp
+18:20:40   bad.guy.org  44073  >  target.mynetwork.com  49844 :udp
+18:20:40   bad.guy.org  26233  >  target.mynetwork.com  62829 :udp
+18:20:40   bad.guy.org    332  >  target.mynetwork.com  49489 :udp
+18:20:41   bad.guy.org  33057  >  target.mynetwork.com  50827 :udp
+18:20:41   bad.guy.org  53888  >  target.mynetwork.com    520 :udp
+18:20:41   bad.guy.org  52491  >  target.mynetwork.com  60539 :udp
+18:20:41   bad.guy.org  20429  >  target.mynetwork.com  36655 :udp
+18:20:42   bad.guy.org  28036  >  target.mynetwork.com  21409 :udp
+18:20:42   bad.guy.org  10648  >  target.mynetwork.com  58237 :udp
+18:20:42   bad.guy.org  33743  >  target.mynetwork.com  23258 :udp
+18:20:42   bad.guy.org  43690  >  target.mynetwork.com  43690 :udp
+18:20:42   bad.guy.org  35603  >  target.mynetwork.com  15080 :udp
+18:20:43   bad.guy.org   2077  >  target.mynetwork.com  61741 :udp
+18:20:43   bad.guy.org  15434  >  target.mynetwork.com   2131 :udp
+18:20:43   bad.guy.org  31954  >  target.mynetwork.com  53798 :udp
+18:20:43   bad.guy.org  39684  >  target.mynetwork.com      0 :udp
+18:20:43   bad.guy.org  20364  >  target.mynetwork.com  33680 :udp
+18:20:43   bad.guy.org  10638  >  target.mynetwork.com  12922 :udp
+18:20:43   bad.guy.org   1344  >  target.mynetwork.com   8068 :udp
+18:20:44   bad.guy.org  33044  >  target.mynetwork.com  19465 :udp
+18:20:44   bad.guy.org  21534  >  target.mynetwork.com  60981 :udp
+
+Network Mapping Attack Patterns
+
+Mapping is an attempt, on the part of a hostile party, to gather information
+about a network; specifically, what IP addresses are alive and what types of
+machines (in terms of hardware, operating system, etc.) are running at what
+addresses. The simplest type of mapping is based on icmp echo-requests. The
+interested party simply attempts to ping each machine in the network, either
+one machine at a time or through reasonably spaced, broadcasted echo requests.
+This tells the source what machines are up and running on the network. Patterns
+14 and 15 show excerpted examples of icmp-based network mapping. In the case of
+Pattern 14, the entire Class B address space was pinged, one machine at a time
+at the average rate of 250 machines per hour.
+
+Pattern 14:
+00:58:48.330217 pinger.mappem.com > 192.168.5.247: icmp: echo request
+00:59:00.409576 pinger.mappem.com > 192.168.5.248: icmp: echo request
+00:59:13.673834 pinger.mappem.com > 192.168.5.249: icmp: echo request
+00:59:26.860533 pinger.mappem.com > 192.168.5.250: icmp: echo request
+00:59:39.991059 pinger.mappem.com > 192.168.5.251: icmp: echo request
+00:59:53.281628 pinger.mappem.com > 192.168.5.252: icmp: echo request
+01:00:06.390525 pinger.mappem.com > 192.168.5.253: icmp: echo request
+01:00:19.463582 pinger.mappem.com > 192.168.5.254: icmp: echo request
+01:00:32.563453 pinger.mappem.com > 192.168.5.255: icmp: echo request
+01:00:35.719236 pinger.mappem.com > 192.168.6.0: icmp: echo request
+01:00:38.861865 pinger.mappem.com > 192.168.6.1: icmp: echo request
+01:00:51.903375 pinger.mappem.com > 192.168.6.2: icmp: echo request
+01:01:04.925395 pinger.mappem.com > 192.168.6.3: icmp: echo request
+01:01:18.014343 pinger.mappem.com > 192.168.6.4: icmp: echo request
+01:01:31.035095 pinger.mappem.com > 192.168.6.5: icmp: echo request
+01:01:44.078728 pinger.mappem.com > 192.168.6.6: icmp: echo request
+01:01:57.098411 pinger.mappem.com > 192.168.6.7: icmp: echo request
+01:02:10.141218 pinger.mappem.com > 192.168.6.8: icmp: echo request
+01:02:23.170212 pinger.mappem.com > 192.168.6.9: icmp: echo request
+01:02:36.218773 pinger.mappem.com > 192.168.6.10: icmp: echo request
+01:02:49.262484 pinger.mappem.com > 192.168.6.11: icmp: echo request
+01:03:02.311444 pinger.mappem.com > 192.168.6.12: icmp: echo request
+
+Pattern 15:
+00:43:58.094644 pinger.mappem.com > 192.168.64.255: icmp: echo request
+00:43:58.604889 pinger.mappem.com > 192.168.64.0: icmp: echo request
+00:43:59.060335 pinger.mappem.com > 192.168.64.255: icmp: echo request
+00:43:59.578614 pinger.mappem.com > 192.168.64.0: icmp: echo request
+00:50:02.297035 pinger.mappem.com > 192.168.65.255: icmp: echo request
+00:50:02.689911 pinger.mappem.com > 192.168.65.0: icmp: echo request
+00:50:03.278235 pinger.mappem.com > 192.168.65.255: icmp: echo request
+00:50:03.685129 pinger.mappem.com > 192.168.65.0: icmp: echo request
+00:54:56.911891 pinger.mappem.com > 192.168.66.255: icmp: echo request
+00:54:57.265833 pinger.mappem.com > 192.168.66.0: icmp: echo request
+00:54:57.909921 pinger.mappem.com > 192.168.66.255: icmp: echo request
+00:54:58.250772 pinger.mappem.com > 192.168.66.0: icmp: echo request
+00:59:52.822243 pinger.mappem.com > 192.168.67.255: icmp: echo request
+00:59:53.415182 pinger.mappem.com > 192.168.67.0: icmp: echo request
+00:59:53.790773 pinger.mappem.com > 192.168.67.255: icmp: echo request
+00:59:54.410082 pinger.mappem.com > 192.168.67.0: icmp: echo request
+
+Along this line is the obvious extension to TCP or UDP echo mapping. Pattern 16
+shows an example of mapping using the UDP echo request. Notice that this
+mapping example is of the low-and-slow variety, where only a few requests are
+received each hour, rather than many per second. The ICMP echo mapping attempts
+are observed much more frequently than UDP or TCP echo mapping endeavors.
+
+Pattern 16:
+01:02:06.614308 slowpoke.mappem.com.2176 > 172.31.66.84.echo: udp 6
+01:04:03.948045 slowpoke.mappem.com.2176 > 192.168.34.226.echo: udp 6
+01:15:24.853282 slowpoke.mappem.com.2176 > 192.168.6.103.echo: udp 6
+01:31:03.166110 slowpoke.mappem.com.2176 > 172.31.187.209.echo: udp 6
+01:33:42.984626 slowpoke.mappem.com.2176 > 192.168.205.84.echo: udp 6
+01:40:07.945375 slowpoke.mappem.com.3066 > 172.31.251.88.echo: udp 6
+01:51:50.709035 slowpoke.mappem.com.3066 > 172.31.88.12.echo: udp 6
+01:53:06.490632 slowpoke.mappem.com.3066 > 172.31.59.224.echo: udp 6
+01:55:09.359423 slowpoke.mappem.com.3066 > 172.31.137.22.echo: udp 6
+01:59:13.287870 slowpoke.mappem.com.3066 > 192.168.108.255.echo: udp 6
+02:08:48.088681 slowpoke.mappem.com.3066 > 192.168.134.117.echo: udp 6
+02:15:04.539055 slowpoke.mappem.com.3066 > 172.31.73.1.echo: udp 6
+02:15:13.155988 slowpoke.mappem.com.3066 > 172.31.16.152.echo: udp 6
+02:22:38.573703 slowpoke.mappem.com.3066 > 192.168.91.18.echo: udp 6
+02:27:07.867063 slowpoke.mappem.com.3066 > 172.31.2.176.echo: udp 6
+02:30:38.220795 slowpoke.mappem.com.3066 > 192.168.5.103.echo: udp 6
+02:49:31.024008 slowpoke.mappem.com.3066 > 172.31.152.254.echo: udp 6
+02:49:55.547694 slowpoke.mappem.com.3066 > 192.168.219.32.echo: udp 6
+
+The mapping patterns we have discussed so far are all "internal mapping"
+attempts. By this it is meant that a hostile party is attempting to learn
+information about the machines inside the protected network. However, the wary
+administrator will want to know when their network is the target of "external
+mapping" attempts as well. External mapping means that a hostile party is
+attempting to learn information about the machines outside (but near) the
+protected network.
+
+The information specifically sought in external mapping is exactly how many
+gateways connect the protected network to the internet, along with as much
+information about these gateways as possible. In theory, if all gateways into
+and out of a protected network were incapacitated, the protected network would
+be completely isolated from the Internet.  Thus, the protected network would be
+subject to a denial of service, regardless of the level of security employed.
+This can be particularly harmful if corporations or operational DOD facilities
+become completely disconnected, unable to even send or receive electronic mail.
+
+The fundamental service on which external mapping is based is the traceroute
+function.  Pattern 17 shows an example of external mapping using traceroute as
+logged by tcpdump. See W. Richard Stevens, _TCP/IP Illustrated Vol. 1_, Chapter
+8 for a good description of the traceroute service and the associated tcpdump
+data trace. Basically, traceroute uses a combination of UDP datagrams and ICMP
+error messages to provide a listing of the routers that handle the UDP packet
+on the way from source to destination.
+
+In pattern 17 we see four separate traceroute patterns. Each of four mappem.com
+machines (named north, south, east, and west) utilize the traceroute function
+to list the network hops on the route between themselves and the nameserver
+ns.target.net. In practice, the four mappem.com machines would be positioned on
+different class A nets, ideally in different parts of the world, relying on
+different pieces of the Internet architecture.
+
+Pattern 17: 10:32:24.722 north.mappem.com.38758 > ns.target.net.33476: udp 12
+10:32:24.756 north.mappem.com.38758 > ns.target.net.33477: udp 12 10:32:24.801
+north.mappem.com.38758 > ns.target.net.33478: udp 12 10:32:24.833
+north.mappem.com.38758 > ns.target.net.33479: udp 12 10:32:24.944
+north.mappem.com.38758 > ns.target.net.33481: udp 12 10:32:24.975
+north.mappem.com.38758 > ns.target.net.33482: udp 12 10:32:25.078
+north.mappem.com.38758 > ns.target.net.33484: udp 12
+
+10:32:26.541 south.mappem.com.48412 > ns.target.net.33510: udp 12 10:32:26.745
+south.mappem.com.48412 > ns.target.net.33512: udp 12 10:32:26.837
+south.mappem.com.48412 > ns.target.net.33513: udp 12 10:32:26.930
+south.mappem.com.48412 > ns.target.net.33514: udp 12 10:32:27.033
+south.mappem.com.48412 > ns.target.net.33515: udp 12 10:32:27.231
+south.mappem.com.48412 > ns.target.net.33517: udp 12 10:32:27.436
+south.mappem.com.48412 > ns.target.net.33519: udp 12
+
+10:32:26.425 east.mappem.com.58853 > ns.target.net.33490: udp 12 10:32:26.541
+east.mappem.com.58853 > ns.target.net.33491: udp 12 10:32:26.744
+east.mappem.com.58853 > ns.target.net.33493: udp 12 10:32:26.836
+east.mappem.com.58853 > ns.target.net.33494: udp 12 10:32:26.930
+east.mappem.com.58853 > ns.target.net.33495: udp 12 10:32:27.033
+east.mappem.com.58853 > ns.target.net.33496: udp 12 10:32:27.232
+east.mappem.com.58853 > ns.target.net.33498: udp 12 10:32:27.323
+east.mappem.com.58853 > ns.target.net.33499: udp 12
+
+10:32:45.760 west.mappem.com.34081 > ns.target.net.33485: udp 12 10:32:45.958
+west.mappem.com.34081 > ns.target.net.33486: udp 12 10:32:46.169
+west.mappem.com.34081 > ns.target.net.33487: udp 12 10:32:46.425
+west.mappem.com.34081 > ns.target.net.33488: udp 12 10:32:46.638
+west.mappem.com.34081 > ns.target.net.33489: udp 12 10:32:46.850
+west.mappem.com.34081 > ns.target.net.33490: udp 12 10:32:47.080
+west.mappem.com.34081 > ns.target.net.33491: udp 12 10:32:47.271
+west.mappem.com.34081 > ns.target.net.33492: udp 12 10:32:47.498
+west.mappem.com.34081 > ns.target.net.33493: udp 12 10:32:47.720
+west.mappem.com.34081 > ns.target.net.33494: udp 12
+
+As shown, the traceroutes are logged within seconds of each other. Presumably,
+the traceroute commands were issued simultaneously, and it is the difference in
+datagram routing that results in the different logging times.  Because the
+mappem.com machines are far apart (in terms of position on the Internet), the
+traceroutes from these machines will likely result in very different route
+listings. However, it might be imagined, that if one were to execute such
+traceroutes over and over, periodically, from several different vantage points
+-- one might gain a fair amount of insight into the routing configuration
+external to the network of interest.
+
+In practice, this repetitious pattern is exactly what we observe. Several
+hostile machines simultaneously issue traceroute commands to an infrastructure
+machine on the protected network. These simultaneous traceroutes are executed
+every few days, at all different times of the day and night, and on weekends as
+well as workdays. The simultaneous execution helps to control the process, that
+is, if something looks unusual on one of the traces, the other traces may be
+considered to gain insight into the cause of the anomaly. In this manner, a
+resourceful individual may collect a great deal of information about how
+Internet service providers sustain a network's connection to the Internet.
+
+Filtering for Intrusion Detection using tcpdump
+
+The freely available software tcpdump provides a powerful filtering capability
+in addition to its data collection service. A high-level logic-based language
+allows the analyst to build powerful filters capable of detecting attacks,
+probes, and other events of interest quickly in large tcpdump log files.  In
+fact, each of the attack patterns we have discussed so far can be detected with
+fairly simple tcpdump filters.
+
+Because tcpdump has a limit on the maximum size a filter may be (based on the
+number of available registers) we break the filtering task up into five pieces.
+Four of these pieces are designated by protocol: there are filters for IP,
+icmp, TCP, and udp level signatures. The fifth piece corresponds to a filter
+that characterizes acceptable traffic flow to and from a few important machines
+on the network. The filter is instructed to report any traffic involving these
+machines that does not fit the acceptable traffic profile. Good machines to
+monitor are infrastructure machines, e.g., name servers, mail servers, http and
+ftp servers, access gateways, firewalls, and sensors. Because many attacks
+target such infrastructure machines, this fifth filter often uncovers new
+intrusion signatures.
+
+Template versions of these filters are part of the Shadow source distribution.
+A listing of some of the components that may be logically combined to create
+composite filters is given below.
+
+IP Filters (Again)
+
+We have examined several example filters; let's consider how we apply them in
+analysis. At this level, we may check to see if the source and destination IP
+addresses are the same. If they are, this is the signature of a "land" attack.
+Also, we may look for packets destined to an entire network via a broadcast
+destination address. Often icmp mapping and denial-of-service (Smurf) attacks
+are detected in this manner.
+
+It is a good idea to monitor for fragmented IP datagrams. In particular, we
+want to be looking for fragmented icmp traffic, as it is very unusual and is
+usually hostile when observed. Further, the "teardrop" attack exploits a
+vulnerability in the way TCP/IP reassembles overlapping IP fragments. CERT
+advisory CA-97.28 reports on this exploit which enables a remote user to cause
+a denial-of-service. Finally, other fragmented traffic may also be of interest;
+for example, this filter often exposes the existence of an encrypted channel
+using an unusual IP protocol.
+
+It can also be useful to monitor any activity logged involving unroutable IP
+addresses, for example net 127.x.x.x that is assigned to localhost. There are a
+few exploits that aim at gaining access to a machine by spoofing the localhost
+address. On the other hand, net 0.x.x.x traffic is typically indicative of a
+misconfiguration of a hardware board or piece of software installed on some
+machine on the subnet. Traffic from other "reserved" network addresses is of
+similar interest. Other address spaces that might be included here would be the
+10.x.x.x, 192.168.x.x, and 172.16.x.x-172.31.x.x networks. Monitoring activity
+from these addresses usually uncovers leaks from (supposedly) isolated internal
+networks.
+
+The last IP filter listed checks to see whether any IP options are set. An
+example of an IP option that is of interest is the source route option. Recall
+that in patterns 2 and 3 we inferred that the packets broadcast "to the world"
+at 255.255.255.255 were source-routed to our networks. It is a good idea to
+disallow source-routed packets in general, and thus it is a good thing to look
+for when monitoring. The only way to tell if IP options are set is to check the
+size of the IP header. If the header size is bigger than the no-option size of
+20 bytes, then options have been set. The maximum size of the IP packet header
+is 60 bytes, so the option field may take up a maximum of 40 bytes. By checking
+the state of the first option flag (once we know that options have been set) we
+can determine what option was requested when the packet was sent.
+
+IP filter atomic elements
+
+#land attacks: source IP = dest IP ip[12:4] = ip[16:4]
+
+#broadcasts to x.x.x.255 ip[19] = 0xff
+
+#broadcasts to x.x.x.0 ip[19] = 0x00
+
+#fragmented IP packets with more fragments coming ip[6:1] & 0x20 != 0
+
+#fragmented ip packets with zero offset (first in sequence) ip[6:2] & 0x1fff =
+0
+
+#unroutable ip addresses: 0.x.x.x, 127.x.x.x, 1.x.x.x, 2.x.x.x, #5.x.x.x, 240.x.x.x through 255.x.x.x
+net 0            
+net 127
+net 1 
+net 2 
+net 5
+ip[12] > 239
+
+#ip packets with options set (header size is bigger than 5 32-bit #words)
+(ip[0:1] & 0x0f) > 5
+
+# if want to check for specific options, check ip[20:1] (given 
+#that (ip[0:1] & 0x0f > 5) is satisfied):
+
+    option                  ip[20:1]
+    -------                ---------
+    record route              7
+    timestamp                 0x44
+    loose source routing      0x83
+    strict source routing     0x89
+
+TCP filters
+
+The TCP filters rely almost entirely on the concept of ports. Usually we want
+to look at inbound active open connections only (SYN flag is set, ACK flag is
+not set). As we will see later, there are interesting patterns embedded in the
+SYN-ACK and RESET connections, however these are difficult to filter for at
+this level. Our efforts here are concentrated on the services requested as
+designated by the destination port used in the active open connection.
+
+The list of "interesting ports" given here was compiled in part using the
+Appendix from Cheswick and Bellovin's book Firewalls and Internet Security.
+Other events of interest have been included in this list based on our personal
+experiences and data collection efforts. In all cases, the filters discussed
+here should be customized to apply specifically to the network they are
+utilized to monitor.
+
+For example, although telnets are allowed to most networks in general, inbound
+telnet attempts to infrastructure machines might not ever be allowed. Under
+these circumstances, the filter should be modified to be something like:
+
+(DST port 23) and ((DST host nameserver.mynet.net) or (DST host
+mailserver.mynet.net))
+
+In that way, the filters will extract any telnet connection attempts to these
+special machines.
+
+Further, in some cases it may be of interest to filter out telnet connections
+attempts from certain IP address spaces. In that case, the filter would be
+modified as given above, except constraints are then set in terms of src net.
+
+Similarly, it is a good idea to screen for inbound nntp (Network News Transfer
+Protocol) connection attempts to machines that are not running nntp servers.
+Typically, isolated nntp probes are observed, rather than a noisy network scan;
+however, either way, the intent is to find machines running servers. At least
+one nntp server hack is in existence today.
+
+DNS zone transfer (TCP port 53 connections) should be disallowed to all but
+trusted hosts. A TCP DNS connection indicates a request to download the current
+host table from the targeted nameserver. Such host table information can
+function as an excellent network map of active machines, and should thus be
+carefully guarded. We have observed both isolated connection attempts to known
+nameservers and also network-wide scans on TCP port 53. In the case of the
+isolated probes to known nameservers the attacker may be attempting to download
+the host table; however, in the case of the scans we postulate that the
+attacker is simply looking for DNS servers. Note that the vulnerabilities in
+many versions of BIND make DNS an attractive service to work with for many
+would-be hackers. CERT advisory CA-98.05 discusses three vulnerabilities in the
+BIND 4.9 and BIND 8 releases, whereby a hacker may gain root access or disrupt
+operations of a nameserver.
+
+Well-known exploits also exist for IMAP and POP-3 (CA-98.09, CA-97.09) servers,
+implying that activity to these ports should be closely monitored if at all
+possible. In cases where legitimate servers of these protocols are running it
+is impossible to monitor every connection -- we will discuss an alternative
+method for those cases in the next section. However, in all cases it is
+possible to filter for the SYN-FIN, source port 0, TCP scans that are commonly
+used to scan for servers. See patterns 18 and 19 for examples of these scans
+,where the DNS and POP-3 ports are targeted, and compare to pattern 10
+involving IMAP.
+
+Pattern 18:
+01:56:58.624019 script.junkie.net.0 > 192.168.93.0.53: SF   2216558592:2216558592(0) win 512
+01:56:58.637759 script.junkie.net.0 > 192.168.93.1.53: SF 2216558592:2216558592(0) win 512
+01:56:58.655110 script.junkie.net.0 > 192.168.93.2.53: SF 2216558592:2216558592(0) win 512
+01:56:58.678034 script.junkie.net.0 > 192.168.93.3.53: SF 2216558592:2216558592(0) win 512
+
+Pattern 19:
+16:36:06.542659 script.junkie.net.0 > 192.168.26.203.110: SF 1681588224:1681588224(0) win 512
+16:36:06.542966 script.junkie.net.0 > 192.168.18.84.110: SF 1681588224:1681588224(0) win 512
+16:36:06.570371 script.junkie.net.0 > 192.168.43.254.110: SF 1681588224:1681588224(0) win 512
+16:36:06.580533 script.junkie.net.0 > 192.168.24.209.110: SF 1681588224:1681588224(0) win 512
+
+In terms of the NETBIOS ports, probes are most often observed to TCP port 139:
+Netbios Session Service. Scanning a network on TCP port 139 is a good way to
+locate SMB (Shared Message Block protocol, aka Samba) file servers. Further
+information may be obtained from http://www.sabotage.org/rootshell in the paper
+"CIFS: Common Insecurities Fail Scrutiny" by Hobbit. This paper describes many
+protocol and administrative vulnerabilities in the NETBIOS file-sharing
+protocols. If your network includes Microsoft systems based on Windows NT, it
+is a good idea to check this out.
+
+Of course it is smart to look for any inbound service requests, such as rlogin,
+rshell, rexec, and sunrpc (portmap). Further, a vulnerability in secure shell
+has been reported, so activity involving this port should be monitored.
+Additionally, we screen for window system ports and logins. By connecting to a
+window manager port (e.g., TCP port 6000), it is possible for a third party to
+observe the contents of the screen while the regular user types at the console.
+Also, it is useful to monitor activity involving TCP port 2049 (and udp port
+2049); this port is used for NFS and isolated connections usually signify
+attempts to mount disks on the targeted system.
+
+Hacker signature ports such as 31337, 87 and 95 are good alarm ports to filter
+for. Legitimate activity is typically not observed involving these ports. In
+"hacker speak" 31337 stands for the word "ELEET" (read "elite"), and this port
+is sometimes used as a source port in scripted attacks. Keying on these three
+ports will illuminate an occasional hostile connection, and will generate few
+false alarms.  Pattern 20 shows a scan for http servers that can be
+distinguished from the noise because the signature source port of 31337 has
+been used.
+
+Pattern 20: 18:54:22.737282 eleet.hacker.org.31337 > 192.168.220.1.80: S
+18:54:22.738515 eleet.hacker.org.31337 > 192.168.220.3.80: S 18:54:22.740791
+eleet.hacker.org.31337 > 192.168.220.7.80: S 18:54:22.742257
+eleet.hacker.org.31337 > 192.168.220.5.80: S 18:54:22.743749
+eleet.hacker.org.31337 > 192.168.220.9.80: S 18:54:22.745816
+eleet.hacker.org.31337 > 192.168.220.11.80: S 18:54:22.750538
+eleet.hacker.org.31337 > 192.168.220.13.80: S 18:54:22.755338
+eleet.hacker.org.31337 > 192.168.220.15.80: S 18:54:22.758723
+eleet.hacker.org.31337 > 192.168.220.17.80: S 18:54:22.761655
+eleet.hacker.org.31337 > 192.168.220.19.80: S 18:54:22.763138
+eleet.hacker.org.31337 > 192.168.220.21.80: S
+
+The final destination-port-based filter included in this list is the "look for
+anything unknown" filter. This filter is an attempt to define the ports where
+we expect to see traffic, in order to illuminate any inbound active open
+connections to ports that we do not recognize. This is a good exercise to
+perform on large and unruly networks, since machines running servers on strange
+ports will quickly become apparent. This filter will also pick up connections
+involving software products that use a loosely defined set of TCP ports. For
+example, the MS NetMeeting software primarily uses TCP ports 1503 and 1720, but
+may use other ports as well when a NetMeeting is in session, an example of this
+is shown in pattern 21. Similarly, the ICQ chatting service uses several
+unassigned TCP ports that will trigger this filter. An example of the ICQ
+pattern is shown in pattern 22. A port list may be obtained from
+ftp://ftp.isi.edu/pub/iana/port_numbers.txt.
+
+In Patterns 21, 22, and 23 the format is:
+
+Timestamp SourceIP  SourcePort > DestinationIP DestinationPort: S Pattern 21:
+09:30:06  chatter.mynet.com  1084  >  127.25.233.30    1503: S 09:30:06
+chatter.mynet.com  1084  >  127.25.233.30    1503: S 09:30:17
+chatter.mynet.com  1085  >  127.25.233.30    1720: S 09:30:23
+chatter.mynet.com  1086  >  127.25.233.30    1090: S 09:30:30
+chatter.mynet.com  1088  >  127.25.233.30    1503: S 09:41:40
+chatter.mynet.com  1136  > 172.26.172.171    1503: S 09:41:40
+chatter.mynet.com  1136  > 172.26.172.171    1503: S 09:41:53
+chatter.mynet.com  1137  > 172.26.172.171    1503: S 09:42:10
+chatter.mynet.com  1138  > 172.26.172.171    1720: S 09:42:13
+chatter.mynet.com  1138  > 172.26.172.171    1720: S 09:42:44  172.26.172.171
+1695  > chatter.mynet.com 1720: S 09:42:48  172.26.172.171     1695  >
+chatter.mynet.com 1720: S 09:42:55  172.26.172.171     1696  >
+chatter.mynet.com 1140: S 09:49:52  10.149.1.44        1063  >
+chatter.mynet.com 1720: S 09:49:57  10.149.1.44        1064  >
+chatter.mynet.com 1141: S 09:50:12  10.149.1.44        1065  >
+chatter.mynet.com 1720: S 09:50:15  10.149.1.44        1065  >
+chatter.mynet.com 1720: S 09:50:30  10.149.1.44        1068  >
+chatter.mynet.com 1720: S 09:50:32  10.149.1.44        1069  >
+chatter.mynet.com 1143: S 09:57:01  10.149.1.44        1088  >
+chatter.mynet.com 1720: S 09:57:53  chatter.mynet.com  1146  > 251.31.171.115
+1503: S 09:57:53  chatter.mynet.com  1146  > 251.31.171.115    1503: S 09:57:57
+chatter.mynet.com  1147  > 251.31.171.115    1720: S 09:58:16
+chatter.mynet.com  1148  > 251.31.171.115    2031: S 09:58:30
+chatter.mynet.com  1150  > 251.31.171.115    1503: S 09:59:38  127.196.232.179
+1259  > chatter.mynet.com 1503: S 09:59:44  127.196.232.179    1260  >
+chatter.mynet.com 1503: S
+
+Pattern 22: 16:00:14  254.255.184.73     1086 >  chatter.mynet.com  1028: S
+16:00:14    10.99.54.159     1145 >  chatter.mynet.com  1028: S 16:00:15
+249.161.207.37     1500 >  chatter.mynet.com  1028: S 16:00:17    10.99.54.159
+1145 >  chatter.mynet.com  1028: S 16:16:14   246.186.18.18     1804 >
+chatter.mynet.com  1028: S 16:16:16   10.121.20.190     1035 >
+chatter.mynet.com  1028: S 16:24:16   172.24.37.160     1364 >
+chatter.mynet.com  1028: S 16:25:31  chatter.mynet.com  1753 >
+249.161.207.37  1479: S 16:25:34  chatter.mynet.com  1753 >     249.161.207.37
+1479: S 16:25:41  chatter.mynet.com  1753 >     249.161.207.37  1479: S
+16:25:53  chatter.mynet.com  1753 >     249.161.207.37  1479: S 16:36:18
+247.53.89.112     1049 >  chatter.mynet.com  1028: S 16:58:20  246.33.100.131
+2650 >  chatter.mynet.com  1028: S 16:58:26   10.76.206.180     1175 >
+chatter.mynet.com  1028: S 17:04:20   249.103.43.89     1065 >
+chatter.mynet.com  1028: S 17:04:20  248.140.58.105     1123 >
+chatter.mynet.com  1028: S 17:30:24   172.29.32.138     1044 >
+chatter.mynet.com  1028: S 17:31:44  chatter.mynet.com  2077 >
+246.33.100.131  2451: S 17:31:45  chatter.mynet.com  2077 >     246.33.100.131
+2451: S 17:31:45  chatter.mynet.com  2077 >     246.33.100.131  2451: S
+17:31:46  chatter.mynet.com  2077 >     246.33.100.131  2451: S 17:32:30
+247.214.199.216 1143 >  chatter.mynet.com  1028: S 17:40:25     172.19.142.13
+1035 >  chatter.mynet.com  1028: S 17:40:25    10.237.129.136   1228 >
+chatter.mynet.com  1028: S 18:08:27    254.65.238.206   1260 >
+chatter.mynet.com  1028: S 18:15:45  chatter.mynet.com  2150 >
+255.31.225.35  1035: S 18:16:02  chatter.mynet.com  2151 >    247.172.250.160
+1027: S 18:16:26        10.24.3.162  1712 >  chatter.mynet.com  1028: S
+18:16:38  chatter.mynet.com  2153 >     254.202.170.34  1245: S 18:16:41
+chatter.mynet.com  2153 >     254.202.170.34  1245: S 18:16:52
+chatter.mynet.com  2154 >       10.188.53.48  1099: S 18:18:18
+chatter.mynet.com  2155 >    247.205.187.164  1027: S 18:18:45
+chatter.mynet.com  2156 >      10.242.130.91  1067: S 18:18:59
+chatter.mynet.com  2157 >      249.30.71.109  1894: S 18:19:09
+chatter.mynet.com  2158 >      252.203.57.30  1281: S 18:19:20
+chatter.mynet.com  2159 >    252.167.182.160  1306: S 18:19:28
+chatter.mynet.com  2160 >      248.140.97.84  1029: S 18:19:31
+chatter.mynet.com  2160 >      248.140.97.84  1029: S 18:20:29
+172.24.144.32   1423 >  chatter.mynet.com  1028: S 18:22:35     10.65.180.31
+1357 >  chatter.mynet.com  1028: S 18:22:38      10.65.180.31   1357 >
+chatter.mynet.com  1028: S 18:30:14     172.24.144.32   1447 >
+chatter.mynet.com  1028: S
+
+Another application that may trigger the "look for anything unknown" filter
+falsely is FTP. As shown in pattern 23, a normal FTP data transfer initiated by
+a client at 192.168.16.3 results in the server performing several active opens
+to high numbered ports on the client machine. A security officer intent on
+protecting the 192.168.x.x network, might view these active open connections as
+hostile when first reported by the filter. However, when the full sequence of
+connections is considered, it is obvious that this is a FTP data download. In
+fact, this type of FTP data transfer is governed by the use of the "PORT"
+command. Under these circumstances, when the client connects to the server, it
+sends a PORT command to the server telling the server what port to open on the
+client machine. Meanwhile, the client performs a passive open on the
+high-numbered port. When a FTP data transfer is negotiated this way, the server
+almost always uses a source port of 20. Thus, it is easy to filter out these
+connections by ignoring traffic that trips the filter but has a source port
+equal to 20.
+
+Pattern 23: 21:50:35     192.168.16.3  45472   > ftp.server.org     21:  S
+21:51:33    ftp.server.org     20  >   192.168.16.3  45473:  S 21:52:14
+ftp.server.org     20  >   192.168.16.3  45474:  S 21:52:31    ftp.server.org
+20  >   192.168.16.3  45475:  S 21:53:18    ftp.server.org     20  >
+192.168.16.3  45476:  S 21:53:38    ftp.server.org     20  >   192.168.16.3
+45477:  S 21:54:15    ftp.server.org     20  >   192.168.16.3  45478:  S
+21:54:57    ftp.server.org     20  >   192.168.16.3  45479:  S 21:55:13
+ftp.server.org     20  >   192.168.16.3  45480:  S 21:55:38    ftp.server.org
+20  >   192.168.16.3  45481:  S 21:56:57    ftp.server.org     20  >
+192.168.16.3  45483:  S 21:57:16    ftp.server.org     20  >   192.168.16.3
+45484:  S
+
+Consider, however, the ftp data transfer shown in pattern 24. This example
+illustrates the case where the client machine resides behind a firewall (for
+example) and the server is prevented from performing active opens on the client
+machine. In order to get around this problem, the client sends a PASV command
+to the server when it connects. This command tells the server to choose a port
+for the data connection and send the port number back in the response. The
+server then performs a passive open on that port (on itself) and listens for a
+connection from the client. The client performs an active open to the server on
+the negotiated port, and thus the data connection is established. A description
+of this behavior is given in TCP/IP: Architecture, Protocols, and
+Implementation by Sidnie Feit. Note that we are unable to screen this traffic
+out based on the source port used in the connection, since the source port used
+will change for each data transfer.
+
+However, when the problem is arranged this way, we see that the false alarms
+will result only when the filters detect active open TCP connections to high
+numbered ports on a FTP server that is resident on the protected network. Thus,
+if it is possible to identify the addresses of the FTP servers operating on the
+protected network (and capable of operating in PASV mode) it is a
+straightforward matter to customize the filters to ignore unusual TCP port
+connections to these servers.  Pattern 24: 06:11:21.798
+client.shielded.com.1986 > ftp.server.mynet.net.21: S 06:11:25.840
+client.shielded.com.1987 > ftp.server.mynet.net.47370: S 06:14:25.694
+client.shielded.com.1988 > ftp.server.mynet.net.47377: S 06:17:10.857
+client.shielded.com.1989 > ftp.server.mynet.net.47384: S
+
+It is worthwhile to note that we have not specifically mentioned filtering for
+http (port 80), smtp (port 25), ftp (port 21), pop-3 (port 110) and other
+commonly used ports. This omission is certainly not due to the fact that there
+are no available exploits involving these services. Rather, the difficulty
+comes in distinguishing hostile TCP traffic to these ports from normal (or
+perhaps misconfigured) connections. At this level of filtering, it is virtually
+impossible to distinguish good from bad, and it is impossible to monitor all
+email or http connections, even on a modest-sized network. These issues will be
+addressed in the next section.  TCP filter atomic elements
+
+#active open packets (syn is set, ack is not) (TCP[13] & 2 != 0) and (TCP[13] &
+0x10 = 0)
+
+#destination ports less than 20 TCP[2:2] < 20
+
+#source ports less than 20 TCP[0:2] < 20
+
+#ssh dst port 22
+
+#telnet (look for these from undesirable sources or to machines or
+#           subnets that shouldn't be receiving telnets)
+dst port 23
+
+#whois dst port 43
+
+#dns zone transfer dst port 53
+
+#gopher dst port 70
+
+#finger dst port 79
+
+#link (hacker signature port) (dst port 87) or (src port 87)
+
+#supdup (hacker signature port) (dst port 95) or (src port 95)
+
+#sunrpc (portmapper) dst port 111
+
+#nntp (look for these to non-news servers) dst port 119
+
+#epmap -- DCE Endpoint resolution dst port 135
+
+#profile -- PROFILE naming system dst port 136
+
+#netbios name service dst port 137
+
+#netbios datagram service dst port 138
+
+#netbios session service dst port 139
+
+#imap dst port 143
+
+#NeWS window system dst port 144
+
+#exec dst port 512
+
+#login dst port 513
+
+#shell dst port 514
+
+#printer spooler (look for unusual activity) dst port 515
+
+#uucp dst port 540
+
+#doom and flash dst port 666
+
+#kerberos admin dst port 749
+
+#loadav dst port 750
+
+#pump dst port 751
+
+#Socks dst port 1080
+
+#openwin (like X11) dst port 2000
+
+#nfs dst port 2049
+
+#listen -- the System V listener dst port 2766
+
+#internet relay chat dst port 6667
+
+#X11 ports (TCP[2:2] >= 6000) and (TCP[2:2] < 7000)
+
+#eleet (hacker signature port) (dst port 31337) or (src port 31337)
+
+#syn and fin flags are set simultaneously (TCP[13] & 2 != 0) and (TCP[13] & 1
+!=0)
+
+#urgent flag is set TCP[13] & 0x20 !=0
+
+#look for anything unknown not ((TCP[2:2] < 20) or dst port 21 or dst port 22
+or dst port 23 or dst port 25 or dst port 37 or dst port 43 or dst port 53 or
+dst port 70 or dst port 79
+
+02:59:20.670 stealth.mappem.com.19801 > 192.168.184.174.1478: R 0:0(0) ack 674719802 win 0
+02:59:31.056 stealth.mappem.com.7960 > 192.168.242.139.1728: R 0:0(0) ack 674719802 win 0
+02:59:42.792 stealth.mappem.com.16106 > 172.16.102.105.1008: R 0:0(0) ack 674719802 win 0
+03:00:50.308 stealth.mappem.com.8986 > 172.16.98.61.1456: R 0:0(0) ack 674719802 win 0
+03:00:58.939 stealth.mappem.com.35124 > 192.168.182.171.1626: R 0:0(0) ack 674719802 win 0
+03:01:14.544 stealth.mappem.com.3609 > 192.168.114.15.2397: R 0:0(0) ack 674719802 win 0
+03:01:17.351 stealth.mappem.com.35870 > 192.168.179.146.2397: R 0:0(0) ack 674719802 win 0
+03:01:39.842 stealth.mappem.com.37687 > 192.168.226.119.2106: R 0:0(0) ack 674719802 win 0
+
+Pattern 30:
+03:00:58.939 stealth.mappem.com.35124 > 192.168.182.171.1626: R 0:0(0) ack 674719802 win 0
+03:00:58.940 router.mynet.net > stealth.mappem.com: icmp: host 192.168.182.171 unreachable
+
+A slightly different scenario is shown in pattern 31 where SYN-ACK packets are
+used instead of RESET connections. In this case, the hosts themselves (rather
+than the router) are tricked into giving up information. From the scan below,
+stealth.mappem.com will know that the hosts 192.168.83.15 and 192.168.162.67
+are up and running, since these machines sent RESET packets back to
+stealth.mappem.com to terminate the connection. Again the ACK number is
+identical for each of the SYN-ACK packets.
+Pattern 31:
+06:40:12.807419 stealth.mappem.com.113 > 172.21.241.67.2472: S 4212553210:4212553210(0) ack 674711610 win 8192 
+06:40:35.352131 stealth.mappem.com.113 > 192.168.21.22.2482: S  1245810288:1245810288(0) ack 674711610 win 8192 
+06:41:24.067330 stealth.mappem.com.113 > 172.21.32.83.1004: S 4052190291:4052190291(0) ack 674711610 win 8192 
+06:42:08.063341 stealth.mappem.com.113 > 192.168.83.15.2039: S 2335925210:2335925210(0) ack 674711610 win 8192 
+06:42:08.066294 192.168.83.15.2039 > stealth.mappem.com.113: R 674711610:674711610(0) win 0
+06:42:14.582943 stealth.mappem.com.113 > 172.21.64.120.2307: S 2718446928:2718446928(0) ack 674711610 win 8192 
+06:42:35.858350 stealth.mappem.com.113 > 172.21.79.98.2184: S 3902144771:3902144771(0) ack 674711610 win 8192 
+06:43:46.974062 stealth.mappem.com.113 > 172.21.126.113.2216: S 3728879575:3728879575(0) ack 674711610 win 8192 
+06:44:09.602803 stealth.mappem.com.113 > 192.168.162.67.2226: S 761493655:761493655(0) ack 674711610 win 8192 
+06:44:09.607462 192.168.162.67.2226 > stealth.mappem.com.113: R 674711610:674711610(0) win 0
+
+Finally, pattern 32 shows a scan utilizing DNS query responses. Said another
+way, these are responses to questions that were never posed. As with the RESET
+scan, there is no stimulus for these connections, and we see the intermediate
+router responding to stealth.com with "host unreachable" messages. For this
+example, the "domain" traffic is UDP, and the DNS service-specific information
+has been omitted from the data trace.
+Pattern 32: 
+05:55:36.515566 stealth.com.domain > 172.29.63.63.20479: udp
+06:46:18.542999 stealth.com.domain > 192.168.160.240.12793: udp   
+07:36:32.713298 stealth.com.domain > 172.29.185.48.54358: udp 
+07:57:01.634613 stealth.com.domain > 254.242.221.165.13043: udp 
+07:57:01.635032 router.mynet.net > stealth.com: icmp: host 254.242.221.165 unreachable
+09:55:28.728984 stealth.com.domain > 192.168.203.163.15253: udp 
+10:38:53.862779 stealth.com.domain > 192.168.126.131.39915: udp
+10:38:53.863158 router.mynet.net > stealth.com: icmp: host 192.168.126.131 unreachable
+10:40:37.513176 stealth.com.domain > 192.168.151.126.19038: udp
+10:40:37.513566 router.mynet.net > stealth.com: icmp: host 192.168.151.126 unreachable
+10:44:28.462431 stealth.com.domain > 172.29.96.220.8479: udp 
+11:35:40.489103 stealth.com.domain > 192.168.7.246.44451: udp 
+11:35:40.489523 router.mynet.net > stealth.com: icmp: host 192.168.7.246 unreachable
+
+----------------------------------------------------------------------
+ Disclaimer
+
+Throughout the document, the examples are based on actual logged network
+activity. However, in each example, the hostnames and IP addresses have been
+changed to protect the privacy of the individuals involved. The hostnames used
+in this document are used for illustrative purposes only, and are not meant to
+pertain to any individual or organization in existence.
+
+It is very important to observe what you see often and be able to detect the
+smallest deviance from the ordinary.  The examples given above are only a few
+of the many types of Attacks or probes you may see as you track your network
+data.  Although you may have a lot of data to examine, you must be careful to
+observe the indications of an attack and be able to spot such an instance even
+if it is hiding in the middle of a huge amount of data.  Again, this is where
+the "one_day_pat.pl" may become quite useful.  Remember, attackers are
+persistent and always trying new methods to gain access to your systems,
+therefore it is vital that you be aware of anything unusual. 
+
+Index
+
+A
+ack · 13, 14, 16, 17, 37, 39, 40
+ACK · 7, 33, 40
+active open · 7, 13, 15, 24, 25, 33, 34, 36, 37
+analysis station · 4, 5, 6, 16
+Analysis Station · 4, 5
+analysis stations · 4, 5, 21
+Analysis System · 4
+attack string · 4
+B
+bad events · 12
+Bellovin · 33
+broadcast · 8, 9, 22, 24, 31, 32
+C
+Cheswick · 33
+Comer · 12
+community string · 9
+compressed · 6, 7
+content analysis · 3, 4
+D
+demilitarized zone · 4
+denial of service · 8
+Denial of Service · 22
+Department of Energy · 3
+detects · 2, 3, 4, 11
+directed broadcast · 9
+disk · 5
+DMZ · 4, 14
+DNS · 10, 17, 19, 25, 33, 40
+E
+echo replies · 8, 22, 23
+events · 4, 6, 12, 13, 14, 16, 19, 31, 33
+evidence · 4, 18
+exception address · 9
+exploit scripts · 3
+F
+false alarms · 3, 13, 34
+filter · 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 24, 31, 32, 33, 34, 36
+filters · 2, 4, 6, 12, 13, 14, 16, 17, 19, 20, 21, 31, 32, 33, 36, 37
+FIN · 7, 26, 33
+firewall · 4, 10, 18, 21, 36
+firewalls · 3, 31
+Fragmentation · 12
+fragmented · 8, 24, 31, 32
+Fragments · 12
+FTP · 12, 15, 36, 37
+G
+Graphical User Interface · 4
+H
+Hardware · 5
+headers · 3, 4, 6, 7
+Hobbit · 34
+HTTP · 12, 15
+hub · 4
+I
+ICMP · 8, 17, 18, 21, 29, 30
+imap · 8, 25, 26, 27, 38
+IRC · 11
+K
+keystrokes · 11
+L
+Land Attack · 9
+Lawrence Berkeley Laboratory · 3
+libpcap · 3, 5, 21
+M
+Machine Vulnerability Scanning · 22
+N
+nameservers · 20, 33
+Naval Surface Warfare Center · 1, 2
+netbios · 20, 25, 38
+NetBIOS · 10, 11
+NETBIOS · 34
+Netlogger · 26
+Network Flight · 3
+network management · 9
+Network Mapping · 22
+Network Vulnerability Scanning · 22, 25
+NFS · 10, 12, 34
+NNTP · 11
+P
+packet · 3, 5, 6, 7, 9, 10, 14, 15, 26, 30, 32
+packets · 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 24, 26, 31, 32, 37, 40
+passive open · 13, 36
+perl · 5, 14, 16, 19, 20
+ping · 8, 19, 24, 28
+Pingmap · 17
+Pingsweep · 17
+portscan · 26, 27
+privacy · 3, 41
+probers · 16
+probes · 3, 8, 12, 16, 18, 27, 31, 33, 34, 41
+pull · 3
+push · 3, 14
+R
+rcp · 9
+RESET · 33, 40
+rlogin · 9, 34
+router · 9, 16, 23, 24, 40
+rshell · 9, 34
+r-utilities · 9
+S
+SAMBA · 10, 11
+scanners · 8
+Scans · 19
+screen dump · 11
+secure shell · 5, 9, 19, 34
+sensor · 4, 5, 6, 14, 16, 18, 21
+sensors · 4, 5, 14, 16, 18, 21, 26, 31
+Shared Message Block · 34
+Smurf · 17, 22, 31
+SNMP · 9
+Socks · 12, 13, 15, 25, 38
+spoofed · 8, 9, 22, 23, 24, 25
+Stealthy Attacks · 22
+Stephen Northcutt · 1, 2
+Stevens · 12, 17, 30
+string analysis · 3
+sunrpc · 10, 27, 34, 37
+SYN · 7, 8, 11, 12, 15, 24, 25, 26, 33, 40
+T
+TCP/IP · 2, 12, 17, 21, 30, 31, 36
+tcpdump · 2, 3, 4, 5, 7, 8, 12, 14, 16, 18, 19, 20, 21, 30, 31
+tcp-reset · 19
+teardrop · 31
+telnet · 7, 15, 27, 33, 37
+traceroute · 8, 30, 31
+traffic analysis · 3
+trusted systems · 9
+W
+web · 3, 4, 5, 13, 16, 20, 24
+web browser · 3, 16
+Windows 95 · 10
+Windows For Workgroup · 10
+Windows NT · 10, 34
+X
+X11 · 11, 38, 39
+

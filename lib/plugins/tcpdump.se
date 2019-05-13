@@ -1,0 +1,165 @@
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+
+$heading = "Search the IDABench packet logs using tcpdump";
+
+sub build_form_table
+{
+    (&choose_site(), &choose_lookup(), &choose_lines(), &choose_count(), 
+    &choose_time(), &choose_tcpdump(), &choose_tcpdump_mods(), &choose_graphbin()
+    );
+}
+
+sub build_search_command
+{
+    return &build_tcpcmd();
+}
+
+# No arguments.
+# Perform plugin-specific data validation, and add to $aborted if errors found.
+# All general validity checks will have been performed before this is called.
+sub plugin_validation
+{
+}
+
+# One argument: A line of the output from the search command.
+# Transform it in place to make the output suitable for display.
+sub transform_plugin_line
+{
+    &dtformat(@_[0]);
+}
+
+# No arguments.
+# Returns a list of html to introduce the results.
+sub answer_heading
+{
+    my $escpattern = escapeHTML($pattern);
+    (
+	h1("Your answers: "),
+	p(" Sensor: $param_info{site}{labels}{$site} -- Host lookup: $nslookup"),
+	p(" Dates: $bdate - $edate ----- Pattern: $escpattern")
+    );
+}
+
+#
+# No arguments.
+# Build and return the string needed to run tcpdump.
+# Die if the command won't run in syntax check mode.
+# Currently this has the side effect of setting the global
+# $pattern, but a way should be found to eliminate this.
+#
+sub build_tcpcmd
+{
+    our $pattern = bpf_pat_build();
+    my $quotepattern = "'".$pattern."'";
+
+    my $verbosity="";
+    $verbosity="-v" if ($verbose eq "verbose");
+    $verbosity="-vv" if ($verbose eq "very verbose");
+    $verbosity="-q" if ($verbose eq "quiet");
+    my $hexad = "";      
+    $hexad = "-x" if ($hexa eq "hex");
+    $hexad = "-X" if ($hexa eq "with ASCII");
+    my $cntarg = "-c $count" if ($count > 0);
+
+    my $lookuparg = ($nslookup eq 'Yes') ? "" : "-n";
+    
+    unless ( -x "$TCPDUMP_PLGBIN"){
+        $pattern_error = qq(Plugin error. tcpdump not found. Please install <A HREF="http://www.tcpdump.org" target="new">tcpdump</A> to access this capability.);
+       return "";
+    } 
+    $pattern_error = "Pattern input error:\n\n\t$pattern\n" if ( system $TCPDUMP_PLGBIN, "-tt", "-S", $lookuparg, $verbosity, "-r", $PCAPTESTF, $pattern );
+        
+    return "$TCPDUMP_PLGBIN -tt -S $lookuparg $verbosity $hexad $cntarg -r - $quotepattern";
+}
+
+#
+# Additional parameters to pass to tcpdump.
+#
+
+sub choose_tcpdump_mods
+{
+    (
+   verbose => {
+	    new => "block",
+            param_label => "Chose level of detail:",
+            maxlen => "12",
+            param_type => "radio",
+            values => [ "quiet", "default", "verbose", "very verbose" ],
+            default_value => "default",
+           },
+   hexa => {
+	    new => "line",
+            param_label => "Print output in hexadecimal?",
+            maxlen => "10",
+            param_type => "radio",
+            values => [ "none", "hex", "with ASCII" ],
+            default_value => "none",
+           }
+    );
+}
+
+sub choose_site
+{
+    return (
+   site=> {
+	   new => "block",
+	   bgcolor => $topframe,
+           param_label => "Which Sensor: ", 
+           maxlen => "50", 
+           param_type => "popup",
+           values => \@SiteFormVals, 
+           labels => \%SiteValueName,
+           default_value => $IDABENCH_SITE_DEFAULT,
+          }
+    );
+}
+sub choose_lookup
+{
+    return (
+   nslookup => {
+	   spacing => "4",
+           param_label => "Host Name Lookup: ",
+           maxlen => "3",
+           param_type => "radio",
+           values => ["Yes", "No"],
+           default_value => "No",
+          }
+    );
+}
+sub choose_lines
+{
+    return (
+    max_lines => {
+	    new => "line",
+            param_label => "Max output lines: ",
+            maxlen => "7",
+            param_type => "number",
+	    field_size => "6",
+            min_value => "0",
+            max_value => "3000000",
+            default_value => "10000",
+    }
+    );
+}
+sub choose_count
+{
+    (
+   count => {
+            spacing => "4",
+            param_label => "Max packets to match per hour:",
+            maxlen => "7",
+            param_type => "number",
+            field_size => "6",
+            min_value => "0",
+            max_value => "9999999",
+            default_value => "0",
+           }
+    );
+}

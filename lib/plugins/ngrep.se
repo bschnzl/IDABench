@@ -1,0 +1,223 @@
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+$heading = "Search for packet payloads using ngrep";
+
+our $graphingyes = false;
+
+sub build_form_table
+{   
+    ( site=> {
+	   new => "block",
+	   bgcolor => $topframe,
+           param_label => "Which Sensor: ", 
+           maxlen => "50", 
+           param_type => "popup",
+           values => \@SiteFormVals, 
+           labels => \%SiteValueName,
+           default_value => $IDABENCH_SITE_DEFAULT,
+          },
+    max_lines => {
+	   spacing => "4",
+           param_label => "Max output lines: ",
+           maxlen => "7",
+           param_type => "number",
+	   field_size => "6",
+           min_value => "0",
+           max_value => "3000000",
+           default_value => "10000",
+          },
+   count => {
+	    spacing => "4",
+            param_label => "Max packets/hour:",
+            maxlen => "7",
+            param_type => "number",
+            field_size => "6",
+            min_value => "0",
+            max_value => "9999999",
+            default_value => "0",
+           },
+	  
+    	&choose_time(), &choose_tcpdump(),
+
+# Creates a list of elements defining ngrep patterns to search for
+#
+    hexpat => {
+	    new => "block",
+	    required => "oneof",
+	    blockname => "Search for this packet content: (regex)",
+	    bgcolor=> $botframe,
+	    spacing => "1",
+	    param_label => "Pattern specified as hexadecimal?",
+	    maxlen => "3",
+	    param_type => "radio",
+	    values => [ "Yes", "No" ],
+	    default_value => "No",
+	    },
+    ngrep_pat0 => {
+	    new => "line",
+	    required => "oneof",
+            field_size => "50",
+            maxlen => "100",
+            param_type => "string",
+            validity_string => "A-Za-z0-9()\-^_*+? \"\',.|\\\/;:\$[]<>=\!&",
+	   },
+    ngrep_join0 => {
+            maxlen => "11",
+            param_type => "popup",
+            values => ["", "followed by", "or"],
+            default_value => 0,
+	   },
+    ngrep_pat1 => {
+    	    new => "line",
+	    required => "oneof",
+            field_size => "50",
+            maxlen => "100",
+            param_type => "string",
+            validity_string => "A-Za-z0-9()\-^*+\"\'_ ?,.|\\\/;:$[]<>=\!&",
+	   },
+    ngrep_join1 => {
+            maxlen => "11",
+            param_type => "popup",
+            values => ["", "followed by", "or"],
+            default_value => 0,
+	   },
+    ngrep_pat2 => {
+    	    new => "line",
+	    required => "oneof",
+            param_label=>"",
+            field_size => "50",
+            maxlen => "100",
+            param_type => "string",
+            validity_string => "A-Za-z0-9()\-^*\"\'+_ ,?.|\\\/;:$[]<>=\!&",
+	   },
+    ngrep_join2 => {
+            maxlen => "11",
+            param_type => "popup",
+            values => ["", "followed by", "or"],
+            default_value => 0,
+	   },
+    ngrep_pat3 => {
+    	    new => "line",
+	    required => "oneof",
+            field_size => "50",
+            maxlen => "100",
+            param_type => "string",
+            validity_string => "A-Za-z0-9()\-^_*+\"\'? ,.|\\\/;:$[]<>=\!&",
+	   },
+	
+	timestamp => {
+    		new => "block",
+		bgcolor => $topframe,
+        	param_label => "Display Timestamp?",
+        	maxlen => "3",
+        	param_type => "radio",
+        	values => [ "Yes", "No"],
+        	default_value => "Yes",
+	       },
+       hexa => {
+		spacing => "3",
+        	param_label => "Print output in hexadecimal?",
+        	maxlen => "3",
+        	param_type => "radio",
+        	values => [ "Yes", "No" ],
+        	default_value => "No",
+               },
+	&choose_graph()
+	);
+}
+
+sub build_search_command
+{
+    my @exps = ($ngrep_pat0, $ngrep_pat1, $ngrep_pat2, $ngrep_pat3);
+    my @conj = ($ngrep_join0, $ngrep_join1, $ngrep_join2, "");
+    my $regexpat = "";
+    
+    for (my $expn = 0; $expn < 3; ++$expn)
+    {
+    	next if(!$exps[$expn]);     # ignore lines with no expression
+	
+	$regexpat .= $exps[$expn];
+	last if(!$conj[$expn]);     # if no conjunction, ignore further expressions
+	
+	$regexpat .= "|" if($conj[$expn] eq "or");
+	$regexpat .= ".*" if($conj[$expn] eq "followed by");
+    }
+    $regexpat = "'".$regexpat."'";
+
+    my $bpfpat = bpf_pat_build();
+    
+    $bpfpat = "'".$bpfpat."'" if ($bpfpat);
+
+    $graphingyes = ($output_type ne "html");
+    our $pattern = "$regexpat $bpfpat";
+    my $time = "t" if ($timestamp eq "Yes");
+    my $hexad  = "x" if (($hexa eq "Yes") and (! $graphingyes));
+    my $hexpat  = "X" if ($hexpat eq "Yes");
+    my $cntarg = "-n $count" if ($count > 0);
+
+
+# Before returning the builtup ngrep commandline, check for the viability of 
+# the binary and use the zero-packet pcaptestfile to test the sanity of the 
+# query. System returns nonzero if there has been an error.
+#
+    our $pattern_error;
+    if ( -x $NGREP_PLGBIN){
+	my @testcmd = ($NGREP_PLGBIN, "$cntarg", "-q${time}${hexpat}${hexad}I$PCAPTESTF", "$regexpat", "$bpfpat");
+        system ("@testcmd") == 0
+            or $pattern_error = "Pattern input error. \nCheck syntax:\t$pattern\n";
+    } else {
+        $pattern_error = qq(Plugin error. ngrep not found. Please install)
+			. qq( <A HREF="https://github.com/jpr5/ngrep" target="new">ngrep</A>)
+                        . qq( to access this capability.\n);
+    }
+    return "$NGREP_PLGBIN $cntarg -q${time}${hexpat}${hexad}I - $pattern";
+}
+
+# No arguments.
+# Perform plugin-specific data validation, and add to $aborted if errors found.
+# All general validity checks will have been performed before this is called.
+#
+sub plugin_validation
+{
+}
+
+# One argument: A line of the output from the search command.
+# Transform it in place to make the output suitable for display.
+#
+sub transform_plugin_line
+{
+    chomp @_[0];
+    # Eliminate pesky "input" and empty lines
+    next if($_[0] =~ /(^input: -)/ or $_[0] !~ /\w/);
+    #@_[0] = "" if(@_[0] =~ /^input: -/);
+    if($graphingyes)
+    {
+    	if(@_[0] =~ m/^.{2}(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}\.\d{6})/)
+	{
+	    @_[0] = $1;
+	}
+	else
+	{
+	    @_[0] = "";
+	}
+    }
+}
+
+# No arguments.
+# Returns a list of html to introduce the results.
+#
+sub answer_heading
+{
+    (
+	h1("Your answers: "),
+	p(" Sensor: $param_info{site}{labels}{$site}"),
+	p(" Dates: $bdate - $edate ----- Pattern: $pattern")
+    );
+}
+

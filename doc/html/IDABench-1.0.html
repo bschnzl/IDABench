@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation</TITLE>
+ <LINK HREF="IDABench-1.0-1.html" REL=next>
+
+
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-1.html">Next</A>
+Previous
+Contents
+<HR>
+<H1>IDABench v1.0 Documentation</H1>
+
+<H2>George Bakos, with contributions from Doug Hill, ISTS - Dartmouth College. <CODE>idabench_dev@ists.dartmouth.edu</CODE></H2>Revision: 1.0 Date: 2003/06/27
+<P><HR>
+<EM>This document describes the IDABench intrusion analysis framework, including
+architecture, installation and configuration, extension and troubleshooting.</EM>
+<HR>
+<P>
+<H2><A NAME="toc1">1.</A> <A HREF="IDABench-1.0-1.html">Introduction</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-1.html#ss1.1">1.1 Overview</A>
+<LI><A HREF="IDABench-1.0-1.html#ss1.2">1.2 Heritage and naming</A>
+</UL>
+<P>
+<H2><A NAME="toc2">2.</A> <A HREF="IDABench-1.0-2.html">Version 1.0 Features</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-2.html#ss2.1">2.1 Ease of installation</A>
+<LI><A HREF="IDABench-1.0-2.html#ss2.2">2.2 Modular, pluggable design</A>
+<LI><A HREF="IDABench-1.0-2.html#ss2.3">2.3 Output type and formatting</A>
+<LI><A HREF="IDABench-1.0-2.html#ss2.4">2.4 Sensor</A>
+<LI><A HREF="IDABench-1.0-2.html#ss2.5">2.5 Security</A>
+<LI><A HREF="IDABench-1.0-2.html#ss2.6">2.6 File system</A>
+</UL>
+<P>
+<H2><A NAME="toc3">3.</A> <A HREF="IDABench-1.0-3.html">Concepts of Operation</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-3.html#ss3.1">3.1 Raw data capture</A>
+<LI><A HREF="IDABench-1.0-3.html#ss3.2">3.2 Partial captures</A>
+<LI><A HREF="IDABench-1.0-3.html#ss3.3">3.3 Raw data retrieval</A>
+<LI><A HREF="IDABench-1.0-3.html#ss3.4">3.4 Analysis</A>
+<LI><A HREF="IDABench-1.0-3.html#ss3.5">3.5 Files maintenance and cleanup</A>
+</UL>
+<P>
+<H2><A NAME="toc4">4.</A> <A HREF="IDABench-1.0-4.html">Requirements</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-4.html#ss4.1">4.1 Hardware</A>
+<LI><A HREF="IDABench-1.0-4.html#ss4.2">4.2 Operating system and software</A>
+</UL>
+<P>
+<H2><A NAME="toc5">5.</A> <A HREF="IDABench-1.0-5.html">Sensor Installation</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-5.html#ss5.1">5.1 Quick install</A>
+<LI><A HREF="IDABench-1.0-5.html#ss5.2">5.2 More detailed sensor installation</A>
+<LI><A HREF="IDABench-1.0-5.html#ss5.3">5.3 Uninstalling</A>
+</UL>
+<P>
+<H2><A NAME="toc6">6.</A> <A HREF="IDABench-1.0-6.html">Analyzer Installation</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-6.html#ss6.1">6.1 Quick install</A>
+<LI><A HREF="IDABench-1.0-6.html#ss6.2">6.2 The grubby details</A>
+</UL>
+<P>
+<H2><A NAME="toc7">7.</A> <A HREF="IDABench-1.0-7.html">Configuration</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-7.html#ss7.1">7.1 Analyzer config</A>
+<LI><A HREF="IDABench-1.0-7.html#ss7.2">7.2 Sensor config</A>
+</UL>
+<P>
+<H2><A NAME="toc8">8.</A> <A HREF="IDABench-1.0-8.html">Hourly plugin filters</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-8.html#ss8.1">8.1 tcpdump filters</A>
+<LI><A HREF="IDABench-1.0-8.html#ss8.2">8.2 ngrep filters</A>
+<LI><A HREF="IDABench-1.0-8.html#ss8.3">8.3 findscan filters</A>
+</UL>
+<P>
+<H2><A NAME="toc9">9.</A> <A HREF="IDABench-1.0-9.html">Ad-hoc searches</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-9.html#ss9.1">9.1 The interface</A>
+<LI><A HREF="IDABench-1.0-9.html#ss9.2">9.2 Standard search options</A>
+<LI><A HREF="IDABench-1.0-9.html#ss9.3">9.3 Search plugins</A>
+<LI><A HREF="IDABench-1.0-9.html#ss9.4">9.4 Repeat queries</A>
+</UL>
+<P>
+<H2><A NAME="toc10">10.</A> <A HREF="IDABench-1.0-10.html">Writing plugins</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-10.html#ss10.1">10.1 Hourly Analysis Plugins</A>
+<LI><A HREF="IDABench-1.0-10.html#ss10.2">10.2 Search plugins</A>
+<LI><A HREF="IDABench-1.0-10.html#ss10.3">10.3 Search Form Details</A>
+</UL>
+<P>
+<H2><A NAME="toc11">11.</A> <A HREF="IDABench-1.0-11.html">Additional notes</A></H2>
+
+<UL>
+<LI><A HREF="IDABench-1.0-11.html#ss11.1">11.1 Debugging</A>
+<LI><A HREF="IDABench-1.0-11.html#ss11.2">11.2 Support</A>
+</UL>
+<P>
+<H2><A NAME="toc12">12.</A> <A HREF="IDABench-1.0-12.html">Contributors</A></H2>
+
+<HR>
+<A HREF="IDABench-1.0-1.html">Next</A>
+Previous
+Contents
+</BODY>
+</HTML>

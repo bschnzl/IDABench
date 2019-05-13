@@ -1,0 +1,87 @@
+<html><head>
+<title>IDABench 2019 - sixteen years on</title>
+</head><body>
+<H1>IDABench 2019 - sixteen years on</H1>
+<H2>A Solid bit of code - No better way to summarize your traffic</H2>
+<H3>Bill Scherr - Security Evangelist, Current Maintainer of IDABench - bschnzl@lavwas.com</H3>
+
+Revision: 1.0, Date 2019/05/05
+<hr>
+This document rests on the shoulders of the excellent work of Giants.  Changes and Updates are described here.  
+<hr>
+<br>
+<h3>What IS this?</h3>
+SHADOW was the "first" IDS.  IDABench aims for "Network Forensics".  Working in it will give you an idea for what your traffic is, normally and the weird stuff.  There will be surprises.  You will learn - a lot!<br><br>
+
+There is much documentation in this package.  It was written in 2003 (or earlier).  This page sits on that.  One goal is to avoid duplication.<br><br>
+
+If you are reading this in the package, <a href="./html/IDABench-1.0.html">The original docs</a> are linked.  They weren't posted on the web originally, except in the package.<br><br>
+
+Ultimately, this is my way of giving back.  I got this (and so much more) from "The Public Domain".  Its not really paying forward when they gave you the tools to do it.  <br>
+
+<h3>Why IDABench?</h3>
+SHADOW and IDABench have been on my networks since they were released - IDABench replacing SHADOW.  I have had a 24 hour connection to the internet of one type or another for 20+ years.  Before leaving my network connected to the big wide world, I took some steps.  Full packet capture was one of them.<br><br>
+
+It is a wrapper for tcpdump(1).  That program was written at the Lawrence Berkeley National Laboratory.  Older versions are still posted here: <a href="ftp://ftp.ee.lbl.gov/old/" target="_new">ftp://ftp.ee.lbl.gov/old/</a>.  Yes, your tax dollars run that site.<br><br>
+
+tcpdump(1) lets you filter on any single bit in each packet collected by an interface.  It supports bluetooth, usb, and even wifi.  LibPCAP (pcap(3)) dumps the data stream to a file.  IDABench keeps it running.  How many folks do you know that can search through years of packets?<br><br>
+
+That format lends a bit of trustworthyness to the data.  That bit does not exist in data collected, analyzed, and presented by another person (or process).  There is little function to corrupt.  Most of the problems with bad packets come in the translation or rendering anyhow.  With IDABench, your PCAP tools are in your browser!!<br><br>
+
+You don't know the value of data until you collect it.  Some NetFlow analysts claim their tools negate the value of full packet capture.  They leave the entire data stream as a hiding place.<br><br>
+
+By stepping back, for under 60 minutes, we can render an hourly summary that is not seen elsewhere.  It is based on source address.  The process begins at 5,000 feet, and gets to ground without much fuss.  You provide the situational awareness.  <br><br>
+
+With full packet capture, or even a significant portion of every packet, you have a record of what passed your collector.  UDP DNS is limited to 512 bytes in the protocol.  A snaplen of 512 will catch every <b>legal</b> DNS query and answer.  Plain-text syslog messages will be captured, and searchable with ngrep, or any other tool you want to write a a plug-in for.  <br><br>
+
+The goal is to read, not guess.  Call me paranoid.<br><br>
+
+From <a href="http://www.avolio.com/papers/7tenets.html" target="_new">Seven Tenets of Good Security</a>: "It is easier to compress, consolidate, summarize, and delete log information, than it is to capture extra information on an event that happened yesterday."  The tools need to be there before the event to collect the data.  Try it, you'll like it.
+
+<h3>What Distributions</h3>
+Gentoo Linux is a big part of my system.  This will install on Gentoo - mostly.  It has run on Gentoo for as long as Gentoo has been in my network.  It will install cleanly on CentOS and RHEL.  It hasn't been tested on Fedora or Debian yet.  Test reports are welcome.  Patches are even better!<br><br>
+
+This is totally Perl CGI.  There is a bit of javascript, but nothing beyond modern browsers.  With a bit of jiggling and shimming it will run on any *NIX.  That statement IS in the included docs.<br><br>
+
+On RHEL and CentOS, you will want the "Basic Web Server" install package.  You will want to add "PERL for Web", and "Debugging Tools".  This is the system that ran the installer, and pointed a browser at it.  From there, go to <a href="./html/IDABench-1.0.html">The original docs</a><br>
+
+<h3>What Changes Here</h3>
+In their infinite wisdom, Red Hat has decided that the NSA's SELINUX be enabled in "enforcing" mode.  A lot of work goes into SELINUX.  Rather than disable that benefit (your tax dollars again), we stretch the coverage around IDABench.  Some would call that adding support for SELINUX. <br><br> 
+
+Red Hat also puts a rather restrictive firewall in place.  We open ports 80/t and 443/t for you.  You'll have to jiggle other distro's.  I am not aware of one that locks IPTables down at all during install.  We include the iptables syntax if we find iptables without Red Hat's chain.<br><br>
+
+You may want to swap out firewalld for iptables-services.  The firewall is still iptables.  The concept of zones is imposed. You lose a lot of flexibility, and the syntax is just as difficult.<br><br>
+
+For giggles, here are the commands to put that in place using firewalld:<br>
+<font face="courier" size="-1">
+~ # firewall-cmd --zone=public --add-port=80/tcp --permanent<br>
+~ # firewall-cmd --zone=public --add-port=443/tcp --permanent<br>
+~ # firewall-cmd --reload<br>
+~ # iptables-save | less</font><br><br>
+
+Reboot and enjoy your persistent rulez.  Perhaps that could be added to the installer.<br><br>
+
+The guys at PERL have put the hammer down on weak temp files.  They have also removed the "defined" statement.  They have been warning you in your logs for some time now.  I was clobbered by their execution, but I had seen their warnings.  So, while I was fixing all that, I went ahead and did the rest.  That is what "deprecated" means.<br>
+
+<h3>Why read packets? </h3>
+That's the crux, isn't it.  These things are wicked complicated.  There are a ton of them.  The whole idea is overwhelming.<br><br>
+
+The only person who can secure a system is the owner.  The industry has many standards, tools, concepts, and processes designed to bolt on to your system.  You have to run them.  The guy that understands the tool better can fix it better.  There is a real difference in uptime available for the taking.  You don't really own something until you break it, and fix it.<br><br>
+
+It takes time.  It takes work. It takes critical thinking.  It is not easy.  IDABench helps you mark your progress.  Your filters will grow, and shrink.  The trends will begin to show.  Before you know it, you will be a packet wrangler.  You will understand what ownership is. <br><br>
+
+You eat an elephant one bite at a time.  The sooner you start, the sooner you finish.  Let's get started!
+
+<h3>OK! What do I need</h3>
+You will be hard pressed to find working specimens in the hardware specification included here.  Let's just say what ever you can cobble together will do.  For context, a typical home will save about 250M a day capturing the first 256 bytes.  That is 100 GB per year.  How long will a 1TB drive last for your $100?<br><br>
+
+I have a 2008 xeon processor, running 8GB of RAM that matches the "server grade" motherboard in a 1U case housing a 500GB Raid 1 (mirrored) hard drive set.  I paid $200 for that in 2010.  It sits on another 1U with dual processors, 16GB of RAM and a 1TB RAID 5 set ($600).  Both were refurbished.  They are not taxed in this effort.  A day's search returns immediately.<br><br>
+
+The main issue is the quality of the network signal.  Modern networks are quite fault tolerant.  I see about a 1% drop rate on my border (ifstat(7)).  A decent network card will help, but you may be at the mercy of your on premise provider.  <br><br>
+
+More money gets better results.  I have seen drop rates of 0 in some networks.  The point is that I don't see libpcap as the issue.  YMMV.  <br><br>
+
+As Michael says: Just Do It!
+
+<br><br><hr><a href="./html/IDABench-1.0.html">The original docs</a><br><br>
+</body></html>

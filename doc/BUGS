@@ -1,0 +1,32 @@
+When Apache times out during long searches (past the timeout value specifies in
+httpd.conf) no error is returned to the browser. If your searches seem to just
+die, look in /var/log/httpd/error_log for a "timeout" entry.
+
+Very large searches seem to fail, regardless of httpd.conf timeout setting.
+
+Under some browsers/conditions, subsequent search.cgi forms are pre-populated
+with the wrong year/month fields. 1999 (lowest value) seems to be a favorite.
+
+Binary output only works in tcpdump searches.
+
+Need a search progress indicator that works.
+
+When graphing, any gap in datapoints should be padded with zeros for each 
+unused x-axis increment. Example:
+        00:01:00        100
+        00:01:01        20
+        00:01:02        0
+        00:01:03        0
+        00:01:04        0
+        00:01:05        20
+        00:01:06        0
+        00:01:07        0
+        00:01:08        20
+        00:01:09        11
+Without the zeros, the range from 01:01 - 01:08 would appear to be a continuous
+rate. Plot using impulses or linespoints for a more accurate representation.
+        
+A binary or graphical output search, with the same query specified as a previous 
+search, should be re-run if the datasets have changed. It isn't.
+
+The statistics pages are not right.  Gotta fix them.

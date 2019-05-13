@@ -1,0 +1,29 @@
+<!--
+# idabench.html         - idabench -v1.0
+#                       
+    -->
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<HTML>
+<HEAD>
+<TITLE>Intrusion Detection Tools</TITLE>
+<SCRIPT LANGUAGE="JavaScript">
+
+<!-- Hide script
+// Open a window
+function OpenWindow(page, win_name, horiz, vert) {
+        window.name = "idabench";
+        window.resizeTo('800', '820')
+        var newwin = window.open(page, win_name,
+            "width="+horiz+",height="+vert+",scrollbars=yes,resizable=yes");
+        if (newwin != null && newwin.opener == null) newwin.opener = self;
+}
+
+// End script hiding -->
+
+</SCRIPT>
+</HEAD>
+<BODY 
+      ONLOAD="OpenWindow('IDABENCH_RELCGI_PATH/tools.cgi', 'tools', '120', '600')"
+      >
+</BODY>
+</HTML>

@@ -1,0 +1,141 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# cleanup.pl         - idabench-1.0
+#
+#  Script to clean up the directory on the SENSOR to prevent loss of data 
+#  due to a disk partition filling up. 
+#  This script will be run by cron nightly.
+#  
+# Set up some variables.
+#
+use Getopt::Long;
+use POSIX qw(strftime);
+#
+##########################################################################
+#
+# BEGIN INSTALLER SCRIPT SECTION ############################################
+# END INSTALLER SCRIPT SECTION ##############################################
+
+############################## Get Configuration information #################
+
+my $idabenchconf = "$IDABENCH_PATH/etc/idabench.conf";
+do $idabenchconf || 
+   die("Unable to open configuration file $idabenchconf.");
+
+foreach (keys %::)
+{
+    next if (!/.*_(PLGBIN|CMD)$/);
+    local our $sym = $main::{$_};
+    next if(!($sym));
+    # if path was defined with `which`, it may end with a newline
+    chomp $$sym;
+}
+
+sub usage {
+        print STDERR "\nUsage: $0 [-e] [-debug] [-d YYYYMMDD] -l <site>.\n";
+	print STDERR " -e, --earlier\tCleanup all files of date specified in -d (or default) and earlier.\n";
+	print STDERR " -debug\t\tReport on what is going on.\n";
+	print STDERR " -d YYYYMMDD\tYear, month, day to cleanup. Default is (today - \$CLEAN_TIME) (from site.ph)\n";
+	print STDERR " -l, --location <site>\tSpecify sitename to cleanup. This must correspond with a directory in $IDABENCH_PATH/etc/sites/.\n";
+        exit 2;
+}
+
+#	Parse the parameters.
+#
+&GetOptions("debug" => \$debug, "earlier!" => \$earlier, "d:s" => \$clean_date, "location=s" => \$site) or usage();
+usage() if ($ARGV[0] || !$site);
+$date_len = length($clean_date);
+
+# Once the site is identified from the command line,
+# load the needed external Parameters.
+#
+
+unless ($return = do "$IDABENCH_SITE_PATH/${site}/site.ph"){
+    warn "$IDABENCH_SITE_PATH/${site}/site.ph couldn't be parsed. $!" unless ($return);
+    usage();
+}
+
+# Parse the $clean_date  into its subcomponents.
+#
+if ($clean_date) {
+
+# Play with the $clean_date parameter so we understand what's happening.
+#
+   usage() if ($date_len < 8);
+   $yr_format =  "a4a2a2a2";
+   ($year, $mon, $mday) = unpack($yr_format, $clean_date);
+   $mon -= 1;
+   $subdir = strftime("%b%d", 0, 0, 0, $mday, $mon, $year, 0, 0, 0);
+}
+
+
+#  Rid ourselves of standard output and error to prevent tons of mail messages
+#  from cron.
+#
+@lvls = split(/\//,$0);				# Split path
+($call, $suf) = split(/\./, $lvls[$#lvls]);	# Split call.suffix
+$LOG_FILE = $debug ? "$IDABENCH_LOG_PATH/$call.log" : "/dev/null";
+open(STDOUT, ">>$LOG_FILE");
+select STDOUT; $| = 1;
+open(STDERR, ">&STDOUT");
+select STDERR; $| = 1;              # make unbuffered
+
+# Writer a marker to the log file.
+#
+$marker=strftime("%c", localtime(time));
+chomp $marker;
+print STDOUT $marker;
+foreach $param ($0, @ARGV) {
+   printf " %s", $param;
+}
+print STDOUT "\n";
+
+# If the $clean_date is specified in the call, use it, otherwise
+# use the default specified in the site-specific .ph file. 
+#
+$CLEAN_TIME = 1 unless ($CLEAN_TIME >= 1);
+@def_clean_time = localtime(time - (($CLEAN_TIME * 86400) - (15*60)));
+$def_clean_date = strftime("%Y%m%d", @def_clean_time);
+$clean_date = $def_clean_date unless ($clean_date);
+
+print STDOUT "Command line option -e found. Will remove all equal to or earlier\nthan $clean_date \n" if ($earlier);
+print STDOUT "Cleanup date = $clean_date \n";
+print STDOUT "Location = $site \n";
+
+
+# Remove the files matching our clean_date
+#
+$file_pat = "$SENSOR_DIR/tcp.$clean_date??.gz";
+$earlier_pat = "$SENSOR_DIR/tcp.${clean_date}23.gz";
+
+if ($earlier){
+    $cmd="df $SENSOR_DIR;find $SENSOR_DIR ! -newer $earlier_pat -exec rm {} \\;;df $SENSOR_DIR"
+} else {
+    $cmd="df $SENSOR_DIR;rm $file_pat;df $SENSOR_DIR";
+}
+$cmd='"' . $cmd . '"';
+
+if ($earlier){
+    print STDOUT "Removing files $file_pat and earlier from $SENSOR.\n";
+} else {
+    print STDOUT "Removing $file_pat from $SENSOR.\n";
+}
+print STDOUT ("$SSH_CMD -l $SENSOR_USER $SENSOR $cmd\n");
+
+$ssh_cmd = "$SSH_CMD -l $SENSOR_USER $SENSOR $cmd";
+open (CMD, "$ssh_cmd|");
+while (<CMD>) {
+   print STDOUT $_;
+}
+close(CMD);
+
+print STDOUT "cleanup.pl completed for clean_date: $clean_date\n";
+

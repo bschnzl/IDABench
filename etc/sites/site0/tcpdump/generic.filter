@@ -1,0 +1,114 @@
+# A fairly broad tcpdump filterset that takes the "policy" approach to identify
+# interesting traffic. We report on everything, EXCEPT that which meets the
+# guidelines below. You can expect a fair number of false positives if you
+# don't edit it to more closely match your network conditions.
+#
+# To use this filter, edit the variables section below so that it applys to the
+# network being monitored, at the least.
+#
+# If this filter grows past 200 lines (without comments), it would be wise to
+# split it into multiple files. Two reasons: 1. Some versions of libpcap have 
+# problems compiling large filter specs, and 2. With a multiprocessor system,
+# you should see a performance improvement as multple filter files will cause
+# fetchem.pl to fork child processes that SHOULD be distributed across CPUs.
+
+# Variable section. You don't need to use variables, but it does make your
+# filtersets a little more portable across sites. For now, please use only one 
+# hostname, ip address, port, etc. per variable. Expect this to be changed in
+# the near future.
+
+var MYNET = 10.0.0.0/23
+var WEBSERVER = 10.0.0.2
+var NAMESERVER = 10.0.0.3
+var MAILSERVER = 10.0.0.4
+var FTPSERVER = 10.0.0.5
+
+ip and (
+    (tcp and !src net $MYNET
+        and (
+            (tcp[13] & 0x3f = 2)        #       Alert on all SYN segments
+                and !(                  #       if the following aren't true
+                
+                                        #       port 80 and port 443 traffic to
+                                        #       the webserver
+                    (dst host $WEBSERVER and (dst port http or dst port https))
+                    or
+                                        #       port 25 traffic to the mail 
+                                        #       server
+                    (dst host $MAILSERVER and (dst port auth or dst port smtp))
+                    or
+                                        #       port 53 traffic to the
+                                        #       nameserver
+                    (dst host $NAMESERVER and dst port domain)
+                    or
+                                        #       Traffic to the ftpserver that
+                                        #       is either going to the command
+                                        #       channel from a client port 
+                                        #       (ephemeral to port 21) or is 
+                                        #       likely passive transfer 
+                                        #       connections (ephemeral to 
+                                        #       ephemeral)
+                    (dst host $FTPSERVER 
+                        and
+                        (
+                            (dst port ftp and tcp[0:2] > 1023)
+                            or
+                            (tcp[0:2] > 1023 and tcp[2:2] > 1023)
+                        )
+                    )
+                )
+        or (
+# A bunch of filters that look for tcp flag bits other than the
+# following expected combinations:
+
+            (
+                (tcp[13] & 0x3f != 0x2)        #       syn
+                and 
+                (tcp[13] & 0x3f != 0x12)        #       ack syn
+                and 
+                (tcp[13] & 0x3f != 0x11)        #       ack fin
+                and 
+                (tcp[13] & 0x3f != 0x19)        #       ack psh fin
+                and 
+                (tcp[13] & 0x3f != 0x14)        #       ack rst
+                and 
+                (tcp[13] & 0x3f != 0x10)        #       ack
+                and 
+                (tcp[13] & 0x3f != 0x18)        #       ack psh
+                and 
+                (tcp[13] & 0x3f != 0x4)         #       rst
+                and 
+                (tcp[13] & 0x3f != 0x31)        #       urg ack fin
+                and 
+                (tcp[13] & 0x3f != 0x38)        #       urg ack psh
+                and 
+                (tcp[13] & 0x3f != 0x3c)        #       urg ack psh rst
+                and 
+                (tcp[13] & 0x3f != 0x1c))       #       ack psh rst
+            )
+        )
+    )
+    
+    or 
+# Some general UDP filters, again reporting on exceptions to what we expect is
+# normal:
+
+    (udp and !src net $MYNET       # Not coming from the inside
+        and !(
+                                        # Some acceptable looking udp dns
+                                        # traffic        
+            src port 53 and (dst port 53 or udp[2:2] > 1023)
+            or 
+            (dst port 53 and dst host $NAMESERVER)
+            or 
+            (
+                                        # Normal acting ntp datagrams
+                (src port 123 and dst port 123)
+                or
+                (src port 123 and udp[2:2] > 1023)
+                or
+                (dst port 123 and udp[0:2] > 1023)
+            )
+        )
+    )
+)

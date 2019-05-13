@@ -1,0 +1,198 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# obfuscate.pl           - idabench Release 1.0
+#
+# Read a text file, change all IP addresses known to be "ours" into different
+# addresses to protect our data.
+#
+# Declare some global variables.
+#
+$host_num = 0;
+$subnet = 0;
+$dummy_host_name = "host000";
+$dummy_mail_name = "bubba000";
+$dummy_dom_name = "goodguys.org";
+$real_host_name = `hostname -s`;
+$real_dom_name = `hostname -d`;
+chomp($real_host_name, $real_dom_name);
+$tmp = '.' . $real_dom_name;
+$tmp =~ s/\./\\\./g;
+$regex1 = qr/ ([a-zA-Z0-9-_]+${tmp})/;
+$tmp2 = '@' . $real_dom_name;
+$tmp2 =~ s/\./\\\./g;
+$regex2 = qr/([a-zA-Z0-9-_]+${tmp2})/;
+#
+#########################################################################
+#
+sub dotted
+#
+# Given a decimal number, convert it to a string with dots.
+#
+{
+   my $val = shift;
+   my $nbytes = shift;
+   my $answer = "";
+   my @digits = ();
+   for (my $ind=0; $ind<4; $ind++) {
+      $digits[3-$ind] = $val & 255;
+      $val = int($val >> 8);
+   }
+   pop(@digits) while (scalar(@digits) > $nbytes);
+   $answer = join (".", @digits);
+   return $answer;
+}
+#########################################################################
+#
+sub itslocal
+{
+#
+# Given an IP address: xxx.xxx.xxx.xxx, return true if it is an "internal"
+# address.
+#
+   use integer;
+
+   my $addr_int = shift;
+   my $local = 0;
+   #
+   for (my $index=0; $index < scalar(@internal_ip); $index++) {
+      if (($addr_int & $netmask[$index]) == $internal_ip[$index]) {
+         $local++;
+         return 1;
+      }
+   }
+   return 0;
+}
+#########################################################################
+#
+sub get_alias
+#
+# Add a new entry to the hash for a local address generating its alias.
+#
+{
+   use integer;
+
+   my $addr_int = shift;
+   for (my $index=0; $index < scalar(@internal_ip); $index++) {
+      if (($addr_int & $netmask[$index]) == $internal_ip[$index]) {
+         my $value = ($alias_ip[$index] & $netmask[$index]);
+         $host_num = ++$host_num % 255;
+         if ($index < 3) {
+            $subnet =  255 - (($addr_int >> 8) & 255);
+            $subnet = 0 if ($subnet == 255);
+            $value += ($subnet << 8) + $host_num;
+         } else {
+            $value += $host_num;
+         }
+         return ($value);
+      }
+   }
+}
+
+#
+# Define an array of "internal" IP addresses.
+#
+@internal_ip = ( 
+                "172.16.0.0", "172.17.0.0", "172.31.10.0",
+               );
+#
+# Define another corresponding array of phoney addresses for the real ones.
+#
+@alias_ip    = ( 
+                "172.21.0.0", "172.22.0.0", "172.16.22.0",
+               );
+
+@netmask = (
+            "255.255.0.0", "255.255.0.0", "255.255.255.0",
+           );
+#
+#
+for ($index=0; $index < scalar(@internal_ip); $index++) {
+   my @bytes = split(/\./, $internal_ip[$index]);
+   $internal_ip[$index] = ($bytes[0] << 24) + ($bytes[1] << 16) + 
+                          ($bytes[2] << 8)  + $bytes[3];
+}
+for ($index=0; $index < scalar(@alias_ip); $index++) {
+   my @bytes = split(/\./, $alias_ip[$index]);
+   $alias_ip[$index] = ($bytes[0] << 24) + ($bytes[1] << 16) + 
+                          ($bytes[2] << 8)  + $bytes[3];
+}
+for ($index=0; $index < scalar(@netmask); $index++) {
+   my @bytes = split(/\./, $netmask[$index]);
+   $netmask[$index] = ($bytes[0] << 24) + ($bytes[1] << 16) + 
+                          ($bytes[2] << 8)  + $bytes[3];
+}
+#
+# Construct a hash with integer IP as the index to save the aliases.
+#
+our %alias = ();
+#
+for ($index=0; $index < scalar(@internal_ip); $index++) {
+   $alias{$internal_ip[$index]} = $alias_ip[$index];
+   my $hostmask = ~$netmask[$index];
+   my $bcast_ip = $internal_ip[$index] | $hostmask;
+   my $bcast_alias = $alias_ip[$index] | $hostmask;
+   $alias{$bcast_ip} = $bcast_alias;
+}
+#
+# Read the file specified in the calling parameter list. Search for IP 
+# addresses.
+#
+open(FILE, $ARGV[0]);
+while (<FILE>) {
+   my $line = $_;
+   @name_matches = ($line =~ m/$regex1/g);
+   foreach $match (@name_matches) {
+      if (! exists $name_alias{$match}) {
+         $new_name = ++$dummy_host_name . ".$dummy_dom_name";
+         $name_alias{$match} = $new_name;
+      } else {
+         $new_name = $name_alias{$match};
+      }
+      $line =~ s/$match/$new_name/g;
+   }
+   @mail_matches = ($line =~ m/$regex2/g);
+   foreach $match (@mail_matches) {
+      if (! exists $name_alias{$match}) {
+         $new_name = ++$dummy_mail_name . "\@$dummy_dom_name";
+         $name_alias{$match} = $new_name;
+      } else {
+         $new_name = $name_alias{$match};
+      }
+      $line =~ s/$match/$new_name/g;
+   }
+   if (@ad_matches = ($line =~ m/((?:\d+\.){1,3}\d+)/g)) {
+      foreach $match (@ad_matches) {
+         my @bytes = split(/\./, $match);
+         my $val = 0;
+         for (my $index=0; $index < 4; $index++) {
+            $val = $val << 8;
+            $val += $bytes[$index];
+         }
+         $match_int = $val;
+         if (itslocal($match_int)) {
+            if (! exists $alias{$match_int}) {
+               $alias{$match_int} = get_alias($match_int);
+            }
+            my $new_addr = dotted($alias{$match_int}, scalar(@bytes));
+            $line =~ s/$match/$new_addr/;
+         }
+      }
+   }
+   print STDOUT $line;
+}
+close(FILE);
+#foreach $key (sort keys %alias) {
+#   printf "IP = %s, ALIAS = %s\n", dotted($key), dotted($alias{$key});
+#}
+#foreach $key (sort keys %name_alias) {
+#   printf "Name = %s, ALIAS = %s\n", $key, $name_alias{$key};
+#}
+#

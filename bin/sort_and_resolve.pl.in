@@ -1,0 +1,159 @@
+#!/usr/bin/perl
+##############################################################################
+#                                                                            #
+#   idabench is public domain software and may be freely used and           #
+#   distributed with or without modification.                                #
+#                                                                            #
+#   See file "idabench.terms" for DISCLAIMER OF ALL WARRANTIES.             #
+#                                                                            #
+##############################################################################
+#
+# sort_and_resolve.pl	 - idabench Version 1.0
+#
+# This file operates on files written by one of the scanning programs 
+# and orders entries by source IP, date, and time. 
+#
+#
+# sort_and_resolve.pl Arguments:
+#
+#       filename - tcpdump output file format.
+#
+use Socket;
+use DB_File;
+use File::Temp "tempfile";
+#
+#########################################################################
+#
+
+# Fetch a non-existant temporary file name, and make sure it disappears
+# when we exit.
+#
+($fh, $db_file) = tempfile("XXXXXXXX", DIR => "$IDABENCH::IDABENCH_SCRATCH_PATH");
+#
+# Tie the hash %h to the btree format of the Berkeley DB module. The hash %h
+# is the tcpdump output line indexed by the source IP address concatenated 
+# with the time.
+#
+tie %fh, "DB_File", $db_file, O_RDWR|O_CREAT, 0644, $DB_BTREE;
+
+#
+# Main Program, Initialize Name/IP hash.
+#
+%ip_name = ();
+$filein = $ARGV[0];
+$resolve_names = $ARGV[1];
+open(IN,"$filein");
+#
+# Read through the entire text file. Construct a key for each record consisting
+# of the source IP address of the record followed by the time tcpdump recorded
+# the record. This will automatically sort the records by IP and time.
+#
+while (<IN>) {
+   # Newer tcpdump format may not begin with src address. Look for the first
+   # appearance of a nnn.nnn.nnn.nnn construct and pray that it's the src addr.
+   my @fields = split(/\s+/ , $_);
+   foreach $field (@fields) {
+      if ( $field =~ /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/){
+         @addr = split(/\./ , $field);
+         last;
+      }
+   }
+   $string_ip = sprintf("%03d%03d%03d%03d", $addr[0], $addr[1], $addr[2], $addr[3]);
+   $key = sprintf("%s %s", $string_ip, $fields[0]);
+#  print "$key\n";
+   $fh{$key} = $_;
+}
+close(IN);
+
+$filenameout = $filein . ".sorted";
+
+$oldsrcip = "0.0.0.0";
+$olddataline = "gobbledeegook";
+open(OUT,">$filenameout");
+#
+# Cycle through our DB file in sorted order and resolve the IP addresses in
+# each line.
+#
+
+while (($key, $dataline) = each %fh)
+{
+    my (@addrs, @fields);
+    @fields = split(/\s+/ , $dataline);
+    foreach $field (@fields) {
+        if ( $field =~ /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/){
+            push @addrs, $field;
+        }
+    }
+    next unless @addrs;
+    $src_ip = $addrs[0];
+    $dst_ip = $addrs[1];
+
+   @src = split(/\./, $src_ip);
+   pop (@src) if (scalar(@src) == 5);
+   $srcip = join('.', @src);
+   $srcname = resolve($srcip) if (($resolve_names eq "yes") and ($srcip ne $oldsrcip));
+
+   $dst_ip =~ tr/://d;
+   @dst = split(/\./, $dst_ip);
+   pop (@dst) if (scalar(@dst) == 5);
+   $dstip = join('.', @dst);
+   $dstname = resolve($dstip) if ( $resolve_names eq "yes" );
+  
+   if ($srcip eq $oldsrcip)
+   {
+      if ($dataline ne $olddataline)
+      {
+       	  $dataline =~ s/$srcip/$srcname/ if ($srcname);
+          $dataline =~ s/$dstip/$dstname/ if ($dstname);
+          print OUT $dataline;
+	   $olddataline = $dataline;
+      }
+   }
+   else
+   {
+      print OUT "\n$srcip > $dstip\n";
+      $dataline =~ s/$srcip/$srcname/ if ($srcname);
+      $dataline =~ s/$dstip/$dstname/ if ($dstname);
+      print OUT $dataline;
+      $oldsrcip = $srcip;
+      $olddataline = $dataline;
+   }
+}
+close(OUT);
+untie(%fh);
+unlink($db_file) or die ("Couldn't unlink $db_file : $!");
+
+sub resolve
+{
+#
+# Given an IP address: xxx.xxx.xxx.xxx, return a machine name if it exists.
+# Keep found names in a hash table to prevent repetitive name lookups.
+#
+
+   my $param = shift(@_);
+   my @octets = (0) x 4;
+   @octets = split(/\./, $param);
+   my $ip_addr = join('.', @octets);
+   
+    
+   if ($ip_name{$ip_addr}) {
+     $name = $ip_name{$ip_addr};
+   } elsif (($octets[3] == 0) or ($octets[0] == 255) or 
+         ($octets[1] == 255) or ($octets[2] == 255) or 
+         ($octets[3] == 255)) {
+         $name = $ip_addr;
+         $ip_name{$ip_addr} = $ip_addr;
+   } else {
+#
+# call system to fetch hostname
+#   
+     my $binip = pack "c4", @octets;
+     my @info = gethostbyaddr($binip, AF_INET);
+     $name = $info[0] ? $info[0] : "";
+    
+     $ip_name{$ip_addr} = $name;
+   }
+   return $name;
+
+}
+

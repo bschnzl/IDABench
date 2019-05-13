@@ -1,0 +1,205 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>IDABench v1.0 Documentation: Version 1.0 Features</TITLE>
+ <LINK HREF="IDABench-1.0-3.html" REL=next>
+ <LINK HREF="IDABench-1.0-1.html" REL=previous>
+ <LINK HREF="IDABench-1.0.html#toc2" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="IDABench-1.0-3.html">Next</A>
+<A HREF="IDABench-1.0-1.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc2">Contents</A>
+<HR>
+<H2><A NAME="features"></A> <A NAME="s2">2. Version 1.0 Features</A></H2>
+
+<H2><A NAME="ease"></A> <A NAME="ss2.1">2.1 Ease of installation</A>
+</H2>
+
+<P>IDABench uses a pair of installation scripts (install_sensor and
+install_analyzer) to check for required and optional dependencies, prepare the
+system, install the IDABench components and start the various processes.  To
+install a basic one-sensor system, configuration requirements are minimal, the
+majority of which can be accomplished before installation. The configuration
+files, idabench.conf and sensor.conf, instruct the install utilities where to
+place the components, account names to use, and most other settings. After
+installation, a simple crypto key exchange will enable the sensor/analyzer
+communications. If both the sensor and analyzer are to occupy the same physical
+machine, although this is not recommended, one of these key exchanges is taken
+care of by the analyzer installer. See the 
+<A HREF="IDABench-1.0-5.html#sensorinstall">Installation</A> sections for the nitty gritty.
+<P>
+<H2><A NAME="modulardesign"></A> <A NAME="ss2.2">2.2 Modular, pluggable design</A>
+</H2>
+
+<P>IDABench was designed with customization in mind. Different analysts will want
+to twist and turn their data in different ways, so we tried to make it a fairly 
+simple task to modify and extend the capabilities of this workbench. There are
+two primary means to this end:
+<P>
+<P>First, when the IDABench analyzer pulls raw tcpdump files from each sensor
+site, it passes this data through analysis tools to produce hourly reports.
+You can add IDABench Hourly Analysis plugin tools which will process this
+stream to produce additional or alternative reports or report sections.
+<P>
+<P>Second, IDABench allows you to run search tools on tcpdump data from any range
+of hours and view the result on a web page.  It is easy to incorporate search 
+and analysis tools of your own as IDABench search plugins. Examples have been 
+provided for tcpdump, ngrep, and tethereal. A uniform, table driven method of 
+specifying search forms is used to create the form which will be displayed to 
+analysts.  The submitted values can be validated by your plugin script and 
+passed as arguments to your search tool, with the results piped to a web page 
+in tabular, chart or libpcap binary form.
+<P>
+<P>By adding plugin capabilities, we hope to realize the following advantages:
+<UL>
+<LI> You can add reports and search tools without having to study a lot of
+IDABench code.</LI>
+<LI> Analysts can get the data they need through the web interface, reducing the
+number of users who need accounts on the analysis computer.</LI>
+<LI> The next release of IDABench may be easier for you to install if you have
+been able to avoid editing core Shadow scripts.</LI>
+<LI> Users may share and contribute plugins for future releases.</LI>
+</UL>
+<P>
+<P>The only plugins that are shipping right now are ngrep, tcpdump, findscan
+(hourly only) and tethereal (search only). You will need the associated binaries
+installed to use them, though. If a site has filters configured for a plugin
+that is not properly installed, the search tabs and hourly sections will appear in
+the webpages, but let you know something is wrong.
+<P>The Plugins section has details on writing your own hourly and search plugins.
+<P>
+<H2><A NAME="outputformat"></A> <A NAME="ss2.3">2.3 Output type and formatting</A>
+</H2>
+
+<P>The default output from IDABench is textual, presented as HTML pages served by
+an httpd on the analysis system. This textual output is organized with each
+plugin's output appearing in an easy to identify section. Navigation links are
+provided at the top and bottom of each page for convenient movement through the
+hourly output. The default search output is also text, but other output forms
+are available. When a custom query is processed by a search plugin, the text is
+returned to the analyst's browser with the search form reappearing at the end of
+her results, pre-populated with the field selections that yielded that result.
+Subsequent, modified queries are then easily entered by changing only those
+fields that need to be refined to produce the next query.
+<P>
+<P>Search results can also be returned in either pcap binary or graphical chart
+form. Binary output is a new pcap binary dumpfile containing ONLY those packets
+which matched your query specification. This new, single, dumpfile is then
+presented for download so that the analyst can perform follow-on analysis on his
+local system, without ever needing a shell account on the IDABench analysis
+machine. Tools that may be of use locally may include graphical analyzers such
+as etherape, ethereal, etc.
+<P>
+<P>Graphical output of queries, via gnuplot, provides the analyst with a view of
+the query that may reveal visual patterns of activity otherwise missed. For
+example, fluctuations in the rate of a denial of service attack may provide
+insight into the techniques used by the attacker. Query results can be plotted
+using several different graph types, and can be scaled in packets per second, 
+minute, hour or day. Be aware that counting packets per unit time across a
+range of hours, days or weeks can take quite some time. Big queries require
+patience as well as horsepower. There is no substitute for RAM and CPU speed.
+See the 
+<A HREF="IDABench-1.0-4.html#hardwarereq">Hardware Requirements</A> sections for recommendations.
+<P>
+<H2><A NAME="sensorfeat"></A> <A NAME="ss2.4">2.4 Sensor</A>
+</H2>
+
+<P>The sensor component of IDABench is a pair of Perl scripts that manage packet
+capture operations for later retrieval by an analyzer. It is suitable for use
+alone or in conjunction with the IDABench Analyzer, which automates the
+retrieval and access to this packet data.  
+<P>
+<P>Sensor installation is designed to be as painless as possible, allowing you to
+rapidly deploy usable sensors with minimal configuration. The <CODE>install_sensor</CODE>
+script and <CODE>sensor.conf</CODE> provided contain sensible defaults for most settings,
+and, unless overridden by <CODE>sensor.conf</CODE> settings, will attempt to locate the
+dependencies during the installation process.
+<P>
+<P>Previous hourly tcpdump capture mechanisms would overwrite partial hour
+dumpfiles if restarted within that hour. Others would abort, rather than
+overwrite. With IDABench sensor, if a dump session is aborted and then resumed
+within the same hour, the partial dumpfile will be renamed and IDABench sensor
+will resume capturing. At the end of the hour, these partial files will be
+merged into one before the analyzer retrieves it, if either mergecap or
+tcpslice is available.
+<P>
+<H2><A NAME="secfeat"></A> <A NAME="ss2.5">2.5 Security</A>
+</H2>
+
+<P>Myriad security issues have been considered, many of which pertain to the
+sensor/analyzer/analyst trust model: 
+<P>
+<UL>
+<LI> Few, if any, analysts will need shell accounts on the IDABench analyzer
+computer, as query results can be presented to them as binary dumpfiles via
+HTTP. 
+</LI>
+<LI> By setting the owner of the hourly sensor files to a non-privileged user, the
+analyzer need not have root privileges to retrieve and manage dumpfiles on
+the sensor(s).  
+</LI>
+<LI> User input via cgi scripts is validated robustly, and data returned from the
+analysis processes is validated by the plugins (in the transform and
+aggregate subroutines) before display.</LI>
+</UL>
+<P>
+<H3>A note on system hardening</H3>
+
+<P>IDABench does not make any efforts to harden your sensor and analyzer computer
+systems. It is the responsibility of the installation team or individual to
+adequately prepare these computers to operate in a potentially hostile
+environment, and must recognize that the IDABench components will likely be
+actively targeted by any attacker who has knowledge of their presence.  Guy
+Bruneau has prepared an excellent secure SHADOW deployment package that could
+be adapted to support IDABench (http://www.whitehats.ca). 
+<P>
+<P>Additional resources to aid in system hardening include:
+Bastille Linux (http://www.bastille-linux.org),
+The SANS Institute Security Reading Room (http://www.sans.org/rr), 
+AusCERT Unix Security Checklist (ttp://www.auscert.org.au/render.html?cid=1920)
+<P>
+<H2><A NAME="filesysfeat"></A> <A NAME="ss2.6">2.6 File system</A>
+</H2>
+
+<P>IDABench is self-contained in an internal file system hierarchy that generally
+adheres to the Filesystem Hierarchy Standard (http://www.pathname.com/fhs/). By
+this, we hope that anyone wishing to install IDABench in a chroot jail will
+encounter few headaches; perhaps in our spare time (hehehe) we'll have a go at
+it ourselves. The IDABench root directory can be anywhere on the system by
+simply specifying the target location in the <CODE>idabench.conf</CODE> file prior to
+installation. The target directory will be created and all necessary components
+moved into it by the install_analyzer and install_sensor scripts. Common
+locations are <CODE>/usr/local/idabench</CODE> and <CODE>/opt/idabench</CODE>.
+<P>
+<P>The <CODE>&lt;IDABench root>/doc&gt;</CODE> directory contains specific documentation for the various
+components, including a subdirectory, "historical", which holds docs specific
+to the NSWC/DD SHADOW releases as well as some general analysis guidance.
+<P>
+<P>Analyzer configs are in <CODE>&lt;IDABench root&gt;/etc</CODE>, with a separate directory for each
+"site", then separate directories in that site for each tool that you want to
+use. Read the comments in <CODE>etc/idabench.conf</CODE> and
+<CODE>etc/site0/site.ph</CODE>
+<P>
+<P>The <CODE>&lt;IDABench root&gt;/lib</CODE> directory contains shared modules, plugins, and headers
+used by the various analyzer scripts.
+<P>
+<P><CODE>&lt;IDABench root&gt;/bin</CODE> contains the actual Perl scripts that do the bulk of the
+analyzer work.
+<P>
+<P>The <CODE>&lt;IDABench root&gt;/var</CODE> directory contains logs, a tmp directory for certain
+volatile content, and a www directory. The www contents may be installed
+elsewhere on the analyzer, if desired. 
+<P>
+<P>Finally, the sensor, if installed, gets its own subdirectory, to easily
+differentiate it in cases where both sensor and analyzer are installed on the
+same machine. These single-host installations, although perfectly legitimate,
+are not recommended for performance reasons.
+<P>
+<HR>
+<A HREF="IDABench-1.0-3.html">Next</A>
+<A HREF="IDABench-1.0-1.html">Previous</A>
+<A HREF="IDABench-1.0.html#toc2">Contents</A>
+</BODY>
+</HTML>
